@@ -1,0 +1,12 @@
+# Plantões (Android)
+
+App nativo em Kotlin (Views, sem Compose), pacote `br.med.plantoes`, minSdk 26, compile/target 34.
+O usuário é médico, não programador: fale em português simples.
+
+- Dados: JSON em `filesDir/plantoes.json` (`Store` em `Plantao.kt`). Alarmes: `Alarms.kt` (setAlarmClock, 24 h e 2 h antes).
+- Cores por hospital: `Paleta` em `Util.kt` (guardadas nas preferências; nunca coloque nomes de hospitais no código).
+- Não coloque a escala pessoal do usuário (hospitais, dias, horários) no código: este repositório é público.
+- Sincronização com a página web: arquivo JSON `{"formato":"plantoes-v1","plantoes":[{local,setor,data,hora,dur,valor,obs}]}`.
+- Atualização automática: `Atualizador.kt` lê `release/versao.json` e baixa `release/Plantoes.apk` (branch main).
+- Para publicar: siga "Publicar uma versão nova" no README. Sempre aumente `versionCode`, assine com a chave privada (`app/plantoes.jks` + `app/keystore.properties`, fora do git; peça ao usuário se não estiver no ambiente)
+  e confira com `aapt2 dump badging release/Plantoes.apk`. Rode `./gradlew testReleaseUnitTest` antes.

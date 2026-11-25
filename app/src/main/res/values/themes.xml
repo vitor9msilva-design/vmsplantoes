@@ -1,0 +1,14 @@
+<resources>
+    <style name="Theme.Plantoes" parent="Theme.Material3.DayNight">
+        <item name="colorPrimary">@color/verde</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorPrimaryContainer">@color/verde_claro</item>
+        <item name="colorOnPrimaryContainer">@color/verde_escuro</item>
+        <item name="colorSecondaryContainer">@color/verde_claro</item>
+        <item name="colorOnSecondaryContainer">@color/verde_escuro</item>
+    </style>
+    <style name="Theme.Plantoes.Alarme" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="colorPrimary">@android:color/white</item>
+    </style>
+</resources>

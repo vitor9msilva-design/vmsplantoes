@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@+id/t_agenda" android:icon="@drawable/ic_agenda" android:title="Agenda" />
+    <item android:id="@+id/t_cal" android:icon="@drawable/ic_cal" android:title="Calendário" />
+    <item android:id="@+id/t_livre" android:icon="@drawable/ic_livre" android:title="Horários livres" />
+</menu>
