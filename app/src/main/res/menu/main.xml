@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@+id/m_excluir" android:title="Excluir vários plantões" />
     <item android:id="@+id/m_receber" android:title="Receber plantões da página" />
     <item android:id="@+id/m_enviar" android:title="Enviar plantões para a página" />
     <item android:id="@+id/m_atualizar" android:title="Procurar atualização do app" />

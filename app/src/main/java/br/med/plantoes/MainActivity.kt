@@ -150,6 +150,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         when (item.itemId) {
+            R.id.m_excluir -> excluirVarios()
             R.id.m_receber -> abrirArquivo.launch(arrayOf("*/*"))
             R.id.m_enviar -> criarArquivo.launch("plantoes-app.json")
             R.id.m_atualizar -> Atualizador.verificar(this, true)
@@ -629,18 +630,40 @@ class MainActivity : AppCompatActivity() {
         dlg.show()
     }
 
+    /** Lixeira: apaga sempre UM plantão só. Para apagar vários, use "Excluir vários plantões" no menu. */
     private fun excluir(p: Plantao) {
         val l = p.inicio.ldt()
-        val iguais = itens.filter {
-            val x = it.inicio.ldt()
-            it.local == p.local && it.inicio >= p.inicio && x.dayOfWeek == l.dayOfWeek && x.toLocalTime() == l.toLocalTime()
-        }
-        val b = MaterialAlertDialogBuilder(this).setTitle("Excluir este plantão?")
+        MaterialAlertDialogBuilder(this).setTitle("Excluir este plantão?")
             .setMessage("${p.local}\n${diaLongo(l.toLocalDate())}, ${hm(p.inicio)} às ${hm(p.fim)}\n\nSó este plantão será apagado. Os outros continuam na agenda.")
-            .setPositiveButton("Excluir só este") { _, _ -> apagar(listOf(p)) }
+            .setPositiveButton("Excluir") { _, _ -> apagar(listOf(p)) }
             .setNegativeButton("Cancelar", null)
-        if (iguais.size > 1) b.setNeutralButton("Este e os próximos ${iguais.size - 1} iguais") { _, _ -> apagar(iguais) }
-        b.show()
+            .show()
+    }
+
+    /** Lista os plantões futuros com caixas de marcar: apaga exatamente os que o usuário marcar. */
+    private fun excluirVarios() {
+        val now = System.currentTimeMillis()
+        val lista = itens.filter { it.fim > now }
+        if (lista.isEmpty()) { Toast.makeText(this, "Não há plantões futuros.", Toast.LENGTH_LONG).show(); return }
+        val nomes = lista.map { "${diaCurto(it.inicio)} ${hm(it.inicio)} · ${it.local}" + if (it.setor.isNotBlank()) " · ${it.setor}" else "" }.toTypedArray()
+        val marcados = BooleanArray(lista.size)
+        val dlg = MaterialAlertDialogBuilder(this).setTitle("Marque os plantões para excluir")
+            .setMultiChoiceItems(nomes, marcados) { _, i, v -> marcados[i] = v }
+            .setPositiveButton("Excluir marcados", null)
+            .setNegativeButton("Cancelar", null)
+            .create()
+        dlg.setOnShowListener {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val escolhidos = lista.filterIndexed { i, _ -> marcados[i] }
+                if (escolhidos.isEmpty()) { Toast.makeText(this, "Nenhum plantão marcado.", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+                dlg.dismiss()
+                MaterialAlertDialogBuilder(this).setTitle("Excluir ${escolhidos.size} plantão(ões)?")
+                    .setMessage(escolhidos.joinToString("\n") { "• ${diaCurto(it.inicio)} ${hm(it.inicio)} · ${it.local}" } + "\n\nOs demais continuam na agenda.")
+                    .setPositiveButton("Excluir") { _, _ -> apagar(escolhidos) }
+                    .setNegativeButton("Cancelar", null).show()
+            }
+        }
+        dlg.show()
     }
 
     private fun apagar(ps: List<Plantao>) {

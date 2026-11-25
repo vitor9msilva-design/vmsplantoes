@@ -1,5 +1,5 @@
 {
-  "versionCode": 3,
-  "versionName": "1.2",
-  "novidades": "• Lixeira em cada plantão: exclui só aquele, com opção Desfazer.\n• Receber e enviar plantões da página web.\n• O app passa a se atualizar sozinho."
+  "versionCode": 4,
+  "versionName": "1.3",
+  "novidades": "• A lixeira agora apaga só aquele plantão. Não existe mais o botão que apagava os próximos iguais junto.\n• Novo: menu ⋮ › Excluir vários plantões. Você marca exatamente quais quer apagar.\n• Depois de excluir, toque em Desfazer se apagou o errado."
 }
