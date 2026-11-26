@@ -28,7 +28,7 @@ class TelasShot {
 
     private val lista: List<Plantao> by lazy {
         val out = mutableListOf<Plantao>()
-        var d = hoje.minusDays(3)
+        var d = hoje.minusDays(30)
         while (d.isBefore(hoje.plusDays(40))) {
             when (d.dayOfWeek.value) {
                 1, 4 -> out += p("Santa Clara Sul", "Noturno", d, 19, 12)
@@ -40,7 +40,15 @@ class TelasShot {
             d = d.plusDays(1)
         }
         out += p("Clínica Norte", "Cinderela", hoje.plusDays(3), 19, 6) // sábado: choca com Hospital Central noite
-        out.sortedBy { it.inicio }
+        // fichas lançadas nos plantões já encerrados (valores fictícios)
+        out.sortedBy { it.inicio }.mapIndexed { i, x ->
+            if (x.fim > agora || i % 4 == 3) x
+            else when (x.local) {
+                "Santa Clara Sul" -> x.copy(fichas = 20 + i % 9, uti = i % 3, porFicha = 50.0, porUti = 150.0)
+                "Santa Maria" -> x.copy(fichas = 18 + i % 7, porFicha = 50.0)
+                else -> x.copy(valor = 1200.0)
+            }
+        }
     }
 
     private val nada = object : Acoes {
@@ -58,10 +66,14 @@ class TelasShot {
         override fun mudarTema(id: String) {}
         override fun volumeMaximo(v: Boolean) {}
         override fun mudarFiltroLivre(minH: Int?, descansoH: Int?) {}
+        override fun lancar(p: Plantao) {}
+        override fun editarRegra(local: String) {}
+        override fun editarMeta() {}
     }
 
-    private fun dados(faltas: List<String> = emptyList(), dias: Long = 60) =
-        Dados(lista.filter { it.inicio < hoje.plusDays(dias).ms() }, agora, 0, 6, faltas, true, "1.4")
+    private fun dados(faltas: List<String> = emptyList(), dias: Long = 60, antes: Long = 400) =
+        Dados(lista.filter { it.inicio < hoje.plusDays(dias).ms() && it.inicio > hoje.minusDays(antes).ms() }, agora, 0, 6, faltas, true, "1.5",
+            mapOf("Santa Clara Sul" to Regra(50.0, 150.0), "Santa Maria" to Regra(50.0, 0.0)), 100.0)
 
     @Before fun cores() {
         Paleta.mapa.clear()
@@ -81,10 +93,15 @@ class TelasShot {
         }
     }
 
-    @Test fun inicio() = paparazzi.snapshot(tela { it.inicio(dados()) })
-    @Test fun agenda() = paparazzi.snapshot(tela { it.agenda(dados(listOf("notificações"), dias = 5)) })
+    @Test fun inicio() = paparazzi.snapshot(tela { it.inicio(dados(antes = 3)) })
+    @Test fun agenda() = paparazzi.snapshot(tela { it.agenda(dados(listOf("notificações"), dias = 5, antes = 1)) })
     @Test fun semana() = paparazzi.snapshot(tela { it.calendario(dados()) })
     @Test fun mes() = paparazzi.snapshot(tela { t -> t.calMes = true; t.calendario(dados()) })
-    @Test fun livres() = paparazzi.snapshot(tela { it.livres(dados(dias = 4)) })
+    @Test fun livres() = paparazzi.snapshot(tela { t -> t.calModo = 2; t.calendario(dados(dias = 4)) })
+    @Test fun ganhos() = paparazzi.snapshot(tela { t -> t.mesGanhos = YearMonth.of(2026, 11); t.ganhos(dados(antes = 9)) })
     @Test fun ajustesVerde() = paparazzi.snapshot(tela("verde") { it.ajustes(dados(), "verde") })
+    @Test fun inicioPendente() = paparazzi.snapshot(tela { t ->
+        val d = dados(antes = 3)
+        t.inicio(d.copy(lista = d.lista.map { if (it.fim < agora) it.copy(fichas = null, valor = 0.0) else it }))
+    })
 }

@@ -64,6 +64,9 @@ fun contagem(ms: Long): String {
 
 fun brl(v: Double): String = NumberFormat.getCurrencyInstance(PT).format(v)
 
+/** Reais sem centavos: "R$ 1.900". */
+fun brl0(v: Double): String = NumberFormat.getCurrencyInstance(PT).apply { maximumFractionDigits = 0; minimumFractionDigits = 0 }.format(v)
+
 fun Context.dp(v: Int): Int = (v * resources.displayMetrics.density + 0.5f).toInt()
 fun Context.dpf(v: Float): Float = v * resources.displayMetrics.density
 fun Context.spf(v: Float): Float =
@@ -150,4 +153,5 @@ class Pal(val tema: Tema) {
     val choqueFundo = 0xFFFEF2F2.toInt()
     val choqueBorda = 0xFFFCA5A5.toInt()
     val descanso = 0x12000000
+    val alerta = 0xFFB45309.toInt()
 }

@@ -1,5 +1,5 @@
 {
-  "versionCode": 5,
-  "versionName": "1.4",
-  "novidades": "• Visual novo, claro e mais limpo.\n• Nova tela Início: próximo plantão com barra de progresso, próximos 7 dias e resumo do mês.\n• Nova aba Ajustes no lugar do menu ⋮, com 3 temas: Azul, Verde e Grafite.\n• Cadastro de plantão desliza de baixo, com calendário e relógio para escolher data e hora.\n• Calendário com cores mais suaves e plantões que batem lado a lado."
+  "versionCode": 6,
+  "versionName": "1.5",
+  "novidades": "• Ganhos por produtividade: ao fim de cada plantão o app pergunta quantas fichas e UTI você atendeu e calcula o ganho e o R$/hora.\n• Nova aba Ganhos: total do mês, média por hora contra a sua meta e resultado por hospital.\n• Em Ajustes › Ganhos: informe quanto cada hospital paga por atendimento e por UTI, e a sua meta por hora.\n• Horários livres agora ficam dentro do Calendário."
 }

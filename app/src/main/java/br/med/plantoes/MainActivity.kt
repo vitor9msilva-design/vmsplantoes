@@ -97,9 +97,9 @@ class MainActivity : AppCompatActivity(), Acoes {
         scroll.setOnScrollChangeListener { _: NestedScrollView, _: Int, y: Int, _: Int, oy: Int ->
             if (y > oy + 8 && fab.isExtended) fab.shrink() else if (y < oy - 8 && !fab.isExtended) fab.extend()
         }
-        nav.selectedItemId = listOf(R.id.t_inicio, R.id.t_agenda, R.id.t_cal, R.id.t_livre, R.id.t_ajustes)[tab]
+        nav.selectedItemId = listOf(R.id.t_inicio, R.id.t_agenda, R.id.t_cal, R.id.t_ganhos, R.id.t_ajustes)[tab]
         nav.setOnItemSelectedListener {
-            val nova = when (it.itemId) { R.id.t_inicio -> 0; R.id.t_agenda -> 1; R.id.t_cal -> 2; R.id.t_livre -> 3; else -> 4 }
+            val nova = when (it.itemId) { R.id.t_inicio -> 0; R.id.t_agenda -> 1; R.id.t_cal -> 2; R.id.t_ganhos -> 3; else -> 4 }
             if (nova != tab) { tab = nova; render(true); scroll.scrollTo(0, 0) }
             true
         }
@@ -119,6 +119,19 @@ class MainActivity : AppCompatActivity(), Acoes {
                 .setNegativeButton("Agora não", null).show()
         }
         Atualizador.verificar(this, false)
+        abrirLancamento(intent)
+    }
+
+    override fun onNewIntent(i: Intent) {
+        super.onNewIntent(i)
+        abrirLancamento(i)
+    }
+
+    /** Veio da notificação "Plantão encerrado": abre direto o lançamento de fichas. */
+    private fun abrirLancamento(i: Intent?) {
+        val id = i?.getStringExtra("lancar") ?: return
+        i.removeExtra("lancar")
+        itens.find { it.id == id }?.let { scroll.post { lancar(it) } }
     }
 
     override fun onSaveInstanceState(out: Bundle) { super.onSaveInstanceState(out); out.putInt("aba", tab) }
@@ -140,6 +153,8 @@ class MainActivity : AppCompatActivity(), Acoes {
         faltas = faltas(),
         volMax = Store.prefs(this).getBoolean("volMax", true),
         versao = Atualizador.nomeVersao(this),
+        regras = Regras.todas(this),
+        meta = Regras.meta(this),
     )
 
     /** Redesenha a aba atual. Com `animar`, o conteúdo entra deslizando de leve (troca de aba). */
@@ -149,7 +164,7 @@ class MainActivity : AppCompatActivity(), Acoes {
             0 -> telas.inicio(d)
             1 -> telas.agenda(d)
             2 -> telas.calendario(d)
-            3 -> telas.livres(d)
+            3 -> telas.ganhos(d)
             else -> telas.ajustes(d, Temas.atual(this).id)
         }
         box.removeAllViews()
@@ -166,7 +181,7 @@ class MainActivity : AppCompatActivity(), Acoes {
     override fun redesenhar() = render(false)
 
     override fun irPara(aba: Int) {
-        nav.selectedItemId = listOf(R.id.t_inicio, R.id.t_agenda, R.id.t_cal, R.id.t_livre, R.id.t_ajustes)[aba]
+        nav.selectedItemId = listOf(R.id.t_inicio, R.id.t_agenda, R.id.t_cal, R.id.t_ganhos, R.id.t_ajustes)[aba]
     }
 
     override fun testarAlarme() {
@@ -320,7 +335,7 @@ class MainActivity : AppCompatActivity(), Acoes {
         }
         val rdv = ui.lin(Gravity.TOP)
         rdv.addView(campo("Duração", dur, true).apply { layoutParams = ui.lp(0, WRAP, top = 12, peso = 1f) })
-        rdv.addView(campo("Valor (R$)", valor).apply { layoutParams = ui.lp(0, WRAP, top = 12, start = 10, peso = 1f) })
+        rdv.addView(campo("Valor fixo (R$)", valor).apply { layoutParams = ui.lp(0, WRAP, top = 12, start = 10, peso = 1f) })
         v.addView(rdv)
 
         val obs = TextInputEditText(this).apply {
@@ -369,6 +384,158 @@ class MainActivity : AppCompatActivity(), Acoes {
         sheet.behavior.state = BottomSheetBehavior.STATE_EXPANDED
         sheet.behavior.skipCollapsed = true
         sheet.show()
+    }
+
+
+    // ---------- produtividade: fichas, valores por hospital e meta ----------
+    private fun numero(dica: String, valor: String, decimal: Boolean = false) = TextInputEditText(this).apply {
+        inputType = InputType.TYPE_CLASS_NUMBER or (if (decimal) InputType.TYPE_NUMBER_FLAG_DECIMAL else 0)
+        setText(valor); setSelectAllOnFocus(true)
+    }
+
+    private fun txt2num(t: CharSequence?) = t.toString().replace(",", ".").trim().toDoubleOrNull() ?: 0.0
+    private fun fmtNum(v: Double) = if (v == Math.floor(v)) v.toLong().toString() else v.toString().replace(".", ",")
+
+    /** Campo numérico com botões − e + ao lado (bom para digitar com uma mão no fim do plantão). */
+    private fun contador(dica: String, entrada: TextInputEditText): View {
+        val r = ui.lin(Gravity.CENTER_VERTICAL)
+        fun passo(d: Int) = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            text = if (d < 0) "−" else "+"; textSize = 20f; minWidth = ui.dp(52); minimumWidth = ui.dp(52)
+            setPadding(0, 0, 0, 0)
+            setOnClickListener {
+                val n = (txt2num(entrada.text).toInt() + d).coerceAtLeast(0)
+                entrada.setText(n.toString())
+            }
+        }
+        r.addView(passo(-1), ui.lp(WRAP, ui.dp(56)))
+        r.addView(campo(dica, entrada).apply { layoutParams = ui.lp(0, WRAP, start = 8, end = 8, peso = 1f) })
+        r.addView(passo(+1), ui.lp(WRAP, ui.dp(56)))
+        r.layoutParams = ui.lp(top = 4)
+        return r
+    }
+
+    override fun lancar(p: Plantao) {
+        val sheet = BottomSheetDialog(this)
+        val v = ui.col(20, 8)
+        val regra = Regras.de(this, p.local)
+        val porFicha0 = if (p.lancado) p.porFicha else regra.porFicha
+        val porUti0 = if (p.lancado) p.porUti else regra.porUti
+
+        v.addView(ui.tv("Fichas do plantão", 22f, pal.ink, 700), ui.lp(top = 8))
+        v.addView(ui.tv("${p.local} · ${diaCurto(p.inicio)} · ${hm(p.inicio)}–${hm(p.fim)} (${horas(p.durMin.toLong())})", 14f, pal.mute), ui.lp(top = 4, bottom = 4))
+
+        val fichas = numero("Atendimentos", (p.fichas ?: 0).toString())
+        val uti = numero("UTI", (p.uti ?: 0).toString())
+        v.addView(contador("Atendimentos (fichas)", fichas))
+        v.addView(contador("Pacientes de UTI", uti))
+
+        // valores do hospital: abertos se ainda não configurados
+        val vf = numero("R$ por atendimento", if (porFicha0 > 0) fmtNum(porFicha0) else "", true)
+        val vu = numero("R$ por UTI", if (porUti0 > 0) fmtNum(porUti0) else "", true)
+        val valores = ui.lin(Gravity.TOP)
+        valores.addView(campo("R$ por atendimento", vf).apply { layoutParams = ui.lp(0, WRAP, top = 12, peso = 1f) })
+        valores.addView(campo("R$ por UTI", vu).apply { layoutParams = ui.lp(0, WRAP, top = 12, start = 10, peso = 1f) })
+        val padrao = com.google.android.material.checkbox.MaterialCheckBox(this).apply {
+            text = "Usar estes valores sempre em ${p.local}"; isChecked = true
+        }
+        val abrirValores = MaterialButton(this, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
+            isAllCaps = false; text = "Valores: ${brl(porFicha0)} por atendimento · ${brl(porUti0)} por UTI  ›"
+            textSize = 13f; setPadding(0, 0, 0, 0)
+        }
+        val mostrarCampos = !regra.configurada && !p.lancado
+        valores.visibility = if (mostrarCampos) View.VISIBLE else View.GONE
+        padrao.visibility = valores.visibility
+        abrirValores.visibility = if (mostrarCampos) View.GONE else View.VISIBLE
+        abrirValores.setOnClickListener { valores.visibility = View.VISIBLE; padrao.visibility = View.VISIBLE; abrirValores.visibility = View.GONE }
+        v.addView(abrirValores, ui.lp(WRAP, WRAP, top = 6))
+        v.addView(valores)
+        v.addView(padrao, ui.lp(WRAP, WRAP, top = 4))
+
+        // resultado ao vivo
+        val res = ui.card(pal.accClaro, pal.accClaro)
+        val rc = ui.col(16, 14)
+        val total = ui.tv("", 30f, pal.ink, 700, num = true)
+        val hora = ui.tv("", 14f, pal.ink2, 600, num = true)
+        val dica = ui.tv("", 13f, pal.mute, 400)
+        rc.addView(ui.tv("Ganho do plantão", 13f, pal.accEscuro, 500))
+        rc.addView(total, ui.lp(top = 4)); rc.addView(hora, ui.lp(top = 4)); rc.addView(dica, ui.lp(top = 6))
+        res.addView(rc)
+        v.addView(res, ui.lp(top = 14))
+        val meta = Regras.meta(this)
+        fun calcula() {
+            val f = txt2num(fichas.text).toInt(); val u = txt2num(uti.text).toInt()
+            val pf = txt2num(vf.text); val pu = txt2num(vu.text)
+            val g = p.valor + f * pf + u * pu
+            val ph = g / p.horas
+            total.text = brl(g)
+            hora.text = "${brl0(ph)}/h · meta ${brl0(meta)}/h"
+            hora.setTextColor(if (ph >= meta) pal.livreTexto else pal.alerta)
+            dica.text = if (pf <= 0) "Informe quanto o hospital paga por atendimento."
+            else {
+                val precisa = Math.ceil((meta * p.horas - p.valor - u * pu) / pf).toInt().coerceAtLeast(0)
+                if (f >= precisa) "Meta batida neste plantão." else "Para a meta seriam $precisa fichas (faltaram ${precisa - f})."
+            }
+        }
+        val observador = object : android.text.TextWatcher {
+            override fun beforeTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {}
+            override fun onTextChanged(a: CharSequence?, b: Int, c: Int, d: Int) {}
+            override fun afterTextChanged(e: android.text.Editable?) = calcula()
+        }
+        listOf(fichas, uti, vf, vu).forEach { it.addTextChangedListener(observador) }
+        calcula()
+
+        val botoes = ui.lin(); botoes.gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        if (p.lancado) botoes.addView(MaterialButton(this, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
+            text = "Apagar lançamento"; isAllCaps = false; setTextColor(pal.choque)
+            setOnClickListener {
+                Store.atualizar(this@MainActivity, p.copy(fichas = null, uti = null, porFicha = 0.0, porUti = 0.0))
+                sheet.dismiss(); render(false)
+            }
+        }, ui.lp(0, WRAP, peso = 1f))
+        val cancelar = MaterialButton(this, null, com.google.android.material.R.attr.borderlessButtonStyle).apply { text = "Cancelar"; isAllCaps = false }
+        val salvar = MaterialButton(this).apply { text = "Salvar"; isAllCaps = false; minWidth = ui.dp(120) }
+        botoes.addView(cancelar); botoes.addView(salvar, ui.lp(WRAP, WRAP, start = 8))
+        v.addView(botoes, ui.lp(top = 16, bottom = 16))
+        cancelar.setOnClickListener { sheet.dismiss() }
+        salvar.setOnClickListener {
+            val pf = txt2num(vf.text); val pu = txt2num(vu.text)
+            val novo = p.copy(fichas = txt2num(fichas.text).toInt(), uti = txt2num(uti.text).toInt(), porFicha = pf, porUti = pu)
+            Store.atualizar(this, novo)
+            if (padrao.visibility == View.VISIBLE && padrao.isChecked) Regras.salvar(this, p.local, Regra(pf, pu))
+            sheet.dismiss(); render(false)
+            Snackbar.make(box, "Lançado: ${brl(novo.ganho)} · ${brl0(novo.porHora)}/h", Snackbar.LENGTH_LONG)
+                .apply { if (fab.isShown) setAnchorView(fab) }.show()
+            getSystemService(NotificationManager::class.java).cancel(p.id.hashCode() xor 4)
+        }
+
+        val sv = NestedScrollView(this); sv.addView(v)
+        sheet.setContentView(sv)
+        sheet.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        sheet.behavior.skipCollapsed = true
+        sheet.show()
+    }
+
+    override fun editarRegra(local: String) {
+        val r = Regras.de(this, local)
+        val v = ui.col(20, 4)
+        val vf = numero("R$ por atendimento", if (r.porFicha > 0) fmtNum(r.porFicha) else "", true)
+        val vu = numero("R$ por UTI", if (r.porUti > 0) fmtNum(r.porUti) else "", true)
+        v.addView(ui.tv("Valores líquidos que este hospital paga. Deixe UTI em branco se não houver adicional.", 14f, pal.mute), ui.lp(top = 4))
+        v.addView(campo("R$ por atendimento (ficha)", vf))
+        v.addView(campo("R$ por paciente de UTI", vu))
+        MaterialAlertDialogBuilder(this).setTitle(local).setView(v)
+            .setPositiveButton("Salvar") { _, _ -> Regras.salvar(this, local, Regra(txt2num(vf.text), txt2num(vu.text))); render(false) }
+            .setNegativeButton("Cancelar", null).show()
+    }
+
+    override fun editarMeta() {
+        val v = ui.col(20, 4)
+        val m = numero("R$ por hora", fmtNum(Regras.meta(this)), true)
+        v.addView(ui.tv("Quanto você quer ganhar, em média, por hora de plantão.", 14f, pal.mute), ui.lp(top = 4))
+        v.addView(campo("Meta (R$ por hora)", m))
+        MaterialAlertDialogBuilder(this).setTitle("Meta por hora").setView(v)
+            .setPositiveButton("Salvar") { _, _ -> val x = txt2num(m.text); if (x > 0) Regras.salvarMeta(this, x); render(false) }
+            .setNegativeButton("Cancelar", null).show()
     }
 
     /** Lixeira: apaga sempre UM plantão só. Para apagar vários, use "Excluir vários plantões" em Ajustes. */

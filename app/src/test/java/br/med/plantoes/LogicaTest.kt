@@ -45,3 +45,23 @@ class AbrevTest {
         assertEquals("Central", abrev("Central"))
     }
 }
+
+class GanhoTest {
+    private val ini = LocalDate.parse("2027-01-04").atTime(19, 0).ms()
+
+    @Test fun atendimentoMaisUti() {
+        // 50 por atendimento + 150 por UTI, 12 h: 22 fichas e 1 UTI = 1.250 → 104,17/h
+        val p = Plantao(local = "A", inicio = ini, durMin = 720, fichas = 22, uti = 1, porFicha = 50.0, porUti = 150.0)
+        assertEquals(1250.0, p.ganho, 0.001)
+        assertEquals(104.1667, p.porHora, 0.001)
+    }
+
+    @Test fun semUtiEValorFixo() {
+        val p = Plantao(local = "B", inicio = ini, durMin = 360, fichas = 10, porFicha = 60.0)
+        assertEquals(600.0, p.ganho, 0.001)
+        val fixo = Plantao(local = "C", inicio = ini, durMin = 720, valor = 1200.0)
+        assertTrue(fixo.temGanho); assertEquals(100.0, fixo.porHora, 0.001)
+        val pendente = Plantao(local = "D", inicio = ini, durMin = 720)
+        assertTrue(!pendente.temGanho)
+    }
+}

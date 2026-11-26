@@ -31,8 +31,14 @@ object Alarms {
         ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
         ?: Settings.System.DEFAULT_NOTIFICATION_URI
 
+    const val CANAL_FICHAS = "fim_plantao_v1"
+
     fun canal(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
+        if (nm.getNotificationChannel(CANAL_FICHAS) == null)
+            nm.createNotificationChannel(NotificationChannel(CANAL_FICHAS, "Fim de plantão", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Lembrete para lançar as fichas atendidas"
+            })
         if (nm.getNotificationChannel(CANAL) != null) return
         val ch = NotificationChannel(CANAL, "Alarmes de plantão", NotificationManager.IMPORTANCE_HIGH).apply {
             description = "Avisos 1 dia antes e 2 horas antes de cada plantão"
@@ -52,7 +58,7 @@ object Alarms {
         nm.createNotificationChannel(ch)
     }
 
-    private fun base(id: String) = (id.hashCode() and 0x0FFFFFFF) * 4
+    private fun base(id: String) = (id.hashCode() and 0x07FFFFFF) * 8
 
     private fun intent(ctx: Context, id: String, kind: Int) =
         Intent(ctx, AlarmReceiver::class.java).setAction(ACAO).putExtra("id", id).putExtra("kind", kind)
@@ -95,6 +101,15 @@ object Alarms {
                 if (codes.size >= MAX_ALARMES) break@loop
             }
         }
+        // aviso de fim de plantão para lançar as fichas (não precisa ser exato ao minuto)
+        for (p in Store.all(ctx).filter { it.fim > now && !it.lancado }.sortedBy { it.fim }.take(60)) {
+            val code = base(p.id) + 4
+            val pi = PendingIntent.getBroadcast(
+                ctx, code, intent(ctx, p.id, 4), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, p.fim, pi)
+            codes.add(code.toString())
+        }
         prefs.edit().putStringSet("codes", codes).apply()
     }
 
@@ -115,6 +130,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val id = i.getStringExtra("id") ?: return
         val kind = i.getIntExtra("kind", 2)
         val p = Store.all(ctx).find { it.id == id }
+        if (kind == 4) { if (p != null && !p.lancado) avisoFichas(ctx, nm, p); return }
         if (p == null && id != "teste") return
         Alarms.canal(ctx)
         val nid = id.hashCode() xor kind
@@ -155,6 +171,25 @@ class AlarmReceiver : BroadcastReceiver() {
         n.flags = n.flags or Notification.FLAG_INSISTENT
         try { nm.notify(nid, n) } catch (_: SecurityException) { }
     }
+}
+
+private fun avisoFichas(ctx: Context, nm: NotificationManager, p: Plantao) {
+    Alarms.canal(ctx)
+    val nid = p.id.hashCode() xor 4
+    val abrir = PendingIntent.getActivity(
+        ctx, nid, Intent(ctx, MainActivity::class.java).putExtra("lancar", p.id)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+    val n = NotificationCompat.Builder(ctx, Alarms.CANAL_FICHAS)
+        .setSmallIcon(R.drawable.ic_stat)
+        .setContentTitle("Plantão encerrado · ${p.local}")
+        .setContentText("Quantas fichas você atendeu? Toque para lançar.")
+        .setContentIntent(abrir)
+        .addAction(0, "Lançar fichas", abrir)
+        .setAutoCancel(true)
+        .build()
+    try { nm.notify(nid, n) } catch (_: SecurityException) { }
 }
 
 class BootReceiver : BroadcastReceiver() {

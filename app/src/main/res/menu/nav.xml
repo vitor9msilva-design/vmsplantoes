@@ -3,6 +3,6 @@
     <item android:id="@+id/t_inicio" android:icon="@drawable/ic_inicio" android:title="Início" />
     <item android:id="@+id/t_agenda" android:icon="@drawable/ic_agenda" android:title="Agenda" />
     <item android:id="@+id/t_cal" android:icon="@drawable/ic_cal" android:title="Calendário" />
-    <item android:id="@+id/t_livre" android:icon="@drawable/ic_livre" android:title="Livres" />
+    <item android:id="@+id/t_ganhos" android:icon="@drawable/ic_ganhos" android:title="Ganhos" />
     <item android:id="@+id/t_ajustes" android:icon="@drawable/ic_ajustes" android:title="Ajustes" />
 </menu>

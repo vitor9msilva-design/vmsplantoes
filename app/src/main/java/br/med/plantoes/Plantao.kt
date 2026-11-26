@@ -12,14 +12,36 @@ data class Plantao(
     val setor: String = "",
     val inicio: Long,
     val durMin: Int,
+    /** Valor fixo do plantão (R$), quando o hospital paga um valor fechado. */
     val valor: Double = 0.0,
     val obs: String = "",
+    /** Produtividade lançada no fim do plantão. null = ainda não lançado. */
+    val fichas: Int? = null,
+    val uti: Int? = null,
+    /** Valores usados no cálculo, guardados no lançamento: mudar a tabela depois não altera o passado. */
+    val porFicha: Double = 0.0,
+    val porUti: Double = 0.0,
 ) {
     val fim: Long get() = inicio + durMin * MIN
+    val horas: Double get() = durMin / 60.0
+    val lancado: Boolean get() = fichas != null
+
+    /** Ganho do plantão: valor fixo + fichas × valor da ficha + UTI × valor da UTI. */
+    val ganho: Double get() = valor + (fichas ?: 0) * porFicha + (uti ?: 0) * porUti
+
+    /** Tem ganho conhecido (lançou fichas ou tem valor fixo). */
+    val temGanho: Boolean get() = lancado || valor > 0
+
+    val porHora: Double get() = if (durMin > 0) ganho / horas else 0.0
 
     fun toJson(): JSONObject = JSONObject()
         .put("id", id).put("local", local).put("setor", setor)
         .put("inicio", inicio).put("durMin", durMin).put("valor", valor).put("obs", obs)
+        .apply {
+            if (fichas != null) put("fichas", fichas)
+            if (uti != null) put("uti", uti)
+            put("porFicha", porFicha); put("porUti", porUti)
+        }
 
     companion object {
         fun fromJson(o: JSONObject) = Plantao(
@@ -30,8 +52,37 @@ data class Plantao(
             durMin = o.getInt("durMin"),
             valor = o.optDouble("valor", 0.0),
             obs = o.optString("obs", ""),
+            fichas = if (o.has("fichas")) o.getInt("fichas") else null,
+            uti = if (o.has("uti")) o.getInt("uti") else null,
+            porFicha = o.optDouble("porFicha", 0.0),
+            porUti = o.optDouble("porUti", 0.0),
         )
     }
+}
+
+/** Quanto cada hospital paga. Guardado nas preferências do celular (nunca no código, que é público). */
+data class Regra(val porFicha: Double = 0.0, val porUti: Double = 0.0) {
+    val configurada: Boolean get() = porFicha > 0 || porUti > 0
+}
+
+object Regras {
+    fun todas(ctx: Context): Map<String, Regra> {
+        val o = try { JSONObject(Store.prefs(ctx).getString("regras", "{}")!!) } catch (_: Exception) { JSONObject() }
+        return o.keys().asSequence().associateWith { k ->
+            val r = o.getJSONObject(k); Regra(r.optDouble("porFicha", 0.0), r.optDouble("porUti", 0.0))
+        }
+    }
+
+    fun de(ctx: Context, local: String): Regra = todas(ctx)[local.trim()] ?: Regra()
+
+    fun salvar(ctx: Context, local: String, r: Regra) {
+        val o = try { JSONObject(Store.prefs(ctx).getString("regras", "{}")!!) } catch (_: Exception) { JSONObject() }
+        o.put(local.trim(), JSONObject().put("porFicha", r.porFicha).put("porUti", r.porUti))
+        Store.prefs(ctx).edit().putString("regras", o.toString()).apply()
+    }
+
+    fun meta(ctx: Context): Double = Store.prefs(ctx).getFloat("metaHora", 100f).toDouble()
+    fun salvarMeta(ctx: Context, v: Double) = Store.prefs(ctx).edit().putFloat("metaHora", v.toFloat()).apply()
 }
 
 /** Guarda os plantões num arquivo JSON dentro do app e reagenda os alarmes a cada mudança. */
@@ -96,6 +147,11 @@ object Store {
                 JSONObject().put("local", p.local).put("setor", p.setor)
                     .put("data", l.toLocalDate().toString()).put("hora", "%02d:%02d".format(l.hour, l.minute))
                     .put("dur", p.durMin / 60.0).put("valor", p.valor).put("obs", p.obs)
+                    .apply {
+                        if (p.fichas != null) put("fichas", p.fichas)
+                        if (p.uti != null) put("uti", p.uti)
+                        if (p.lancado) { put("porFicha", p.porFicha); put("porUti", p.porUti) }
+                    }
             )
         }
         return JSONObject().put("formato", "plantoes-v1").put("origem", "app")
@@ -115,6 +171,9 @@ object Store {
                 local = x.getString("local").trim(), setor = x.optString("setor", "").trim(),
                 inicio = d.atTime(hh, mm).ms(), durMin = (x.optDouble("dur", 12.0) * 60).toInt(),
                 valor = x.optDouble("valor", 0.0), obs = x.optString("obs", ""),
+                fichas = if (x.has("fichas")) x.getInt("fichas") else null,
+                uti = if (x.has("uti")) x.getInt("uti") else null,
+                porFicha = x.optDouble("porFicha", 0.0), porUti = x.optDouble("porUti", 0.0),
             )
         }
     }

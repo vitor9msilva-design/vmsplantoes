@@ -31,6 +31,9 @@ interface Acoes {
     fun mudarTema(id: String)
     fun volumeMaximo(v: Boolean)
     fun mudarFiltroLivre(minH: Int?, descansoH: Int?)
+    fun lancar(p: Plantao)
+    fun editarRegra(local: String)
+    fun editarMeta()
 }
 
 /** Tudo o que as telas precisam saber para se desenhar. */
@@ -42,13 +45,21 @@ data class Dados(
     val faltas: List<String>,
     val volMax: Boolean,
     val versao: String,
+    val regras: Map<String, Regra> = emptyMap(),
+    val meta: Double = 100.0,
 )
 
 class Telas(private val ui: Ui, private val a: Acoes) {
     private val pal = ui.pal
     private val tickers = mutableListOf<() -> Unit>()
+    private var meta = 100.0
 
-    var calMes = false
+    /** 0 = semana, 1 = mês, 2 = horários livres */
+    var calModo = 0
+    var calMes: Boolean
+        get() = calModo == 1
+        set(v) { calModo = if (v) 1 else 0 }
+    var mesGanhos: YearMonth = YearMonth.now()
     var semana: LocalDate = inicioSemana(LocalDate.now())
     var mes: YearMonth = YearMonth.now()
     var diaSel: LocalDate = LocalDate.now()
@@ -62,7 +73,7 @@ class Telas(private val ui: Ui, private val a: Acoes) {
 
     // ======================= INÍCIO =======================
     fun inicio(d: Dados): View {
-        tickers.clear()
+        tickers.clear(); meta = d.meta
         val v = ui.col()
         val hoje = d.now.ldt().toLocalDate()
         v.addView(ui.cabecalho("Plantões", diaLongo(hoje)))
@@ -73,6 +84,11 @@ class Telas(private val ui: Ui, private val a: Acoes) {
         v.addView(cartaoProximo(fut.firstOrNull(), d, conf))
         if (conf.isNotEmpty())
             v.addView(aviso("Choque de horário", "${conf.size} plantões se sobrepõem. Estão em vermelho na agenda.", "Ver") { a.irPara(1) })
+        val pend = pendentes(d)
+        if (pend.isNotEmpty()) {
+            v.addView(ui.secao("Lançar fichas", "${pend.size} pendente" + if (pend.size > 1) "s" else ""))
+            pend.take(3).forEach { v.addView(itemRow(it, false, d.now)) }
+        }
 
         v.addView(ui.secao("Próximos 7 dias"))
         v.addView(faixaSemana(d, hoje, conf))
@@ -88,15 +104,16 @@ class Telas(private val ui: Ui, private val a: Acoes) {
         val ym = YearMonth.from(hoje)
         val doMes = d.lista.filter { YearMonth.from(it.inicio.ldt()) == ym }
         v.addView(ui.secao(mesAno(ym)))
-        val valor = doMes.sumOf { it.valor }
-        val livres7 = Livre.janelas(d.lista, d.now, d.now + 7 * DAY, d.descansoMin).sumOf { it.min }
+        val comGanho = doMes.filter { it.temGanho }
+        val ganho = comGanho.sumOf { it.ganho }
+        val horasG = comGanho.sumOf { it.horas }
         v.addView(estatisticas(
             listOf(
                 doMes.size.toString() to "plantões",
-                horas(doMes.sumOf { it.durMin.toLong() }) to "de trabalho",
-                (if (valor > 0) brl(valor) else horasCurto(livres7)) to (if (valor > 0) "a receber" else "livres em 7 dias"),
+                brl0(ganho) to "ganhos até agora",
+                (if (horasG > 0) "${brl0(ganho / horasG)}/h" else "–") to "média por hora",
             )
-        ))
+        ).apply { setOnClickListener { a.irPara(3) } })
         return v
     }
 
@@ -262,9 +279,9 @@ class Telas(private val ui: Ui, private val a: Acoes) {
     }
 
     /** Uma linha da agenda: horário, faixa colorida do hospital, nome e lixeira. */
-    fun itemRow(p: Plantao, choque: Boolean, now: Long): View {
+    fun itemRow(p: Plantao, choque: Boolean, now: Long, esmaecer: Boolean = true): View {
         val c = if (choque) ui.card(pal.choqueFundo, pal.choqueBorda) else ui.card()
-        if (p.fim < now) c.alpha = 0.55f
+        if (esmaecer && p.fim < now) c.alpha = 0.55f
         val r = ui.lin(Gravity.TOP)
         r.setPadding(ui.dp(16), ui.dp(14), ui.dp(4), ui.dp(14))
         val t = ui.col()
@@ -276,10 +293,23 @@ class Telas(private val ui: Ui, private val a: Acoes) {
             LinearLayout.LayoutParams(ui.dp(3), MATCH).apply { marginEnd = ui.dp(14) })
         val info = ui.col()
         info.addView(ui.tv(p.local, 16f, pal.ink, 600))
-        val meta = listOfNotNull(p.setor.takeIf { it.isNotBlank() }, horas(p.durMin.toLong()), if (p.valor > 0) brl(p.valor) else null)
-        info.addView(ui.tv(meta.joinToString(" · "), 13f, pal.mute, 400), ui.lp(top = 4))
+        val linhaMeta = listOfNotNull(p.setor.takeIf { it.isNotBlank() }, horas(p.durMin.toLong()))
+        info.addView(ui.tv(linhaMeta.joinToString(" · "), 13f, pal.mute, 400), ui.lp(top = 4))
         if (p.obs.isNotBlank()) info.addView(ui.tv(p.obs, 13f, pal.ink2, 400), ui.lp(top = 4))
         if (choque) info.addView(ui.pill("Choque de horário", pal.choque), ui.lp(WRAP, WRAP, top = 8))
+        if (p.lancado || p.valor > 0) {
+            val partes = mutableListOf<String>()
+            if (p.fichas != null) partes += "${p.fichas} fichas"
+            if ((p.uti ?: 0) > 0) partes += "${p.uti} UTI"
+            partes += brl0(p.ganho)
+            partes += "${brl0(p.porHora)}/h"
+            val corG = if (p.porHora >= meta) pal.livreTexto else pal.alerta
+            if (p.inicio <= now) info.addView(ui.pill(partes.joinToString(" · "), corG), ui.lp(WRAP, WRAP, top = 8))
+        } else if (p.inicio <= now) {
+            info.addView(botaoTexto("Lançar fichas") { a.lancar(p) }.apply {
+                setPadding(0, 0, 0, 0); minHeight = ui.dp(32); minimumHeight = ui.dp(32)
+            }, ui.lp(WRAP, WRAP, top = 2))
+        }
         r.addView(info, ui.lp(0, WRAP, peso = 1f))
         r.addView(ui.icone(R.drawable.ic_delete, "Excluir só este plantão") { a.excluir(p) }, LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)))
         c.addView(r)
@@ -290,7 +320,7 @@ class Telas(private val ui: Ui, private val a: Acoes) {
 
     // ======================= AGENDA =======================
     fun agenda(d: Dados): View {
-        tickers.clear()
+        tickers.clear(); meta = d.meta
         val v = ui.col()
         val fut = d.lista.filter { it.fim > d.now }
         v.addView(ui.cabecalho("Agenda",
@@ -323,19 +353,23 @@ class Telas(private val ui: Ui, private val a: Acoes) {
 
     // ======================= CALENDÁRIO =======================
     fun calendario(d: Dados): View {
-        tickers.clear()
+        tickers.clear(); meta = d.meta
         val v = ui.col()
         v.addView(ui.cabecalho("Calendário"))
         val tg = MaterialButtonToggleGroup(ui.c).apply { isSingleSelection = true; isSelectionRequired = true }
         val estilo = com.google.android.material.R.attr.materialButtonOutlinedStyle
         val bS = MaterialButton(ui.c, null, estilo).apply { text = "Semana"; isAllCaps = false; id = View.generateViewId() }
         val bM = MaterialButton(ui.c, null, estilo).apply { text = "Mês"; isAllCaps = false; id = View.generateViewId() }
-        tg.addView(bS, ui.lp(0, WRAP, peso = 1f)); tg.addView(bM, ui.lp(0, WRAP, peso = 1f))
-        tg.check(if (calMes) bM.id else bS.id)
+        val bL = MaterialButton(ui.c, null, estilo).apply { text = "Livres"; isAllCaps = false; id = View.generateViewId() }
+        val ids = listOf(bS.id, bM.id, bL.id)
+        tg.addView(bS, ui.lp(0, WRAP, peso = 1f)); tg.addView(bM, ui.lp(0, WRAP, peso = 1f)); tg.addView(bL, ui.lp(0, WRAP, peso = 1f))
+        tg.check(ids[calModo])
         tg.addOnButtonCheckedListener { _, id, checked ->
-            if (checked && (id == bM.id) != calMes) { calMes = id == bM.id; tg.post { a.redesenhar() } }
+            val novo = ids.indexOf(id)
+            if (checked && novo != calModo) { calModo = novo; tg.post { a.redesenhar() } }
         }
         v.addView(tg, ui.lp(bottom = 12))
+        if (calModo == 2) { livresConteudo(v, d); return v }
 
         val nav = ui.lin()
         val titulo = if (calMes) mesAno(mes) else "${diaCurto(semana)} – ${diaCurto(semana.plusDays(6))}"
@@ -404,10 +438,8 @@ class Telas(private val ui: Ui, private val a: Acoes) {
     }
 
     // ======================= LIVRES =======================
-    fun livres(d: Dados): View {
-        tickers.clear()
-        val v = ui.col()
-        v.addView(ui.cabecalho("Horários livres", "Intervalos sem plantão nos próximos 30 dias"))
+    private fun livresConteudo(v: LinearLayout, d: Dados) {
+        v.addView(ui.tv("Intervalos sem plantão nos próximos 30 dias", 14f, pal.mute), ui.lp(bottom = 10))
         val filtros = ui.card()
         val f = ui.col(16, 14)
         f.addView(ui.tv("Intervalo mínimo", 13f, pal.mute, 500))
@@ -426,12 +458,11 @@ class Telas(private val ui: Ui, private val a: Acoes) {
             js.size.toString() to "intervalos",
             (maior?.let { horasCurto(it.min) } ?: "–") to "o maior",
         )), ui.lp(top = 4))
-        if (js.isEmpty()) { v.addView(vazioGrande("Nenhum intervalo desse tamanho", "Diminua o intervalo mínimo acima.")); return v }
+        if (js.isEmpty()) { v.addView(vazioGrande("Nenhum intervalo desse tamanho", "Diminua o intervalo mínimo acima.")); return }
         for ((dia, lista) in js.groupBy { it.ini.ldt().toLocalDate() }) {
             v.addView(ui.secao(diaCurto(dia)))
             lista.forEach { v.addView(livreCard(it)) }
         }
-        return v
     }
 
     private fun escolhas(vals: List<Int>, sel: Int, cb: (Int) -> Unit): View {
@@ -473,6 +504,107 @@ class Telas(private val ui: Ui, private val a: Acoes) {
         return c
     }
 
+    /** Plantões que já começaram e ainda não tiveram fichas lançadas (últimos 30 dias, sem valor fixo). */
+    private fun pendentes(d: Dados) =
+        d.lista.filter { it.inicio <= d.now && !it.lancado && it.valor <= 0 && it.fim > d.now - 30 * DAY }
+            .sortedByDescending { it.inicio }
+
+    // ======================= GANHOS =======================
+    fun ganhos(d: Dados): View {
+        tickers.clear(); meta = d.meta
+        val v = ui.col()
+        v.addView(ui.cabecalho("Ganhos"))
+        val nav = ui.lin()
+        nav.addView(ui.icone(R.drawable.ic_ant, "Mês anterior", pal.ink2) { mesGanhos = mesGanhos.minusMonths(1); a.redesenhar() },
+            LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)))
+        nav.addView(ui.tv(mesAno(mesGanhos), 16f, pal.ink, 600).apply { gravity = Gravity.CENTER }, ui.lp(0, WRAP, peso = 1f))
+        nav.addView(ui.icone(R.drawable.ic_prox, "Próximo mês", pal.ink2) { mesGanhos = mesGanhos.plusMonths(1); a.redesenhar() },
+            LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)))
+        v.addView(nav, ui.lp(bottom = 8))
+
+        val ini = mesGanhos.atDay(1).ms(); val fim = mesGanhos.plusMonths(1).atDay(1).ms()
+        val doMes = d.lista.filter { it.inicio in ini until fim }
+        val feitos = doMes.filter { it.inicio <= d.now }
+        val comGanho = feitos.filter { it.temGanho }
+        val total = comGanho.sumOf { it.ganho }
+        val horasG = comGanho.sumOf { it.horas }
+        val media = if (horasG > 0) total / horasG else 0.0
+
+        // cartão principal: total e média por hora contra a meta
+        val card = ui.card(raio = 20f)
+        val c = ui.col(20, 20)
+        c.addView(ui.tv("Total no mês", 13f, pal.mute, 500))
+        c.addView(ui.tv(brl0(total), 40f, pal.ink, 700, num = true), ui.lp(top = 4))
+        val linhaMedia = ui.lin()
+        linhaMedia.addView(ui.tv(if (horasG > 0) "${brl0(media)}/h em média" else "Sem fichas lançadas ainda", 15f, pal.ink2, 600, num = true), ui.lp(0, WRAP, peso = 1f))
+        linhaMedia.addView(ui.tv("meta ${brl0(d.meta)}/h", 13f, pal.mute, 500, num = true))
+        c.addView(linhaMedia, ui.lp(top = 12))
+        val ok = media >= d.meta
+        val corM = if (ok) pal.livre else pal.alerta
+        val barra = ui.lin().apply { background = ui.fundo(pal.surface2, 4f) }
+        val fr = if (d.meta > 0) (media / d.meta).toFloat().coerceIn(0.02f, 1f) else 1f
+        barra.addView(View(ui.c).apply { background = ui.fundo(corM, 4f) }, LinearLayout.LayoutParams(0, ui.dp(8), fr))
+        barra.addView(View(ui.c), LinearLayout.LayoutParams(0, ui.dp(8), 1f - fr))
+        c.addView(barra, ui.lp(top = 10))
+        if (horasG > 0) c.addView(ui.tv(
+            if (ok) "Acima da meta: ${brl0(media - d.meta)}/h a mais" else "Abaixo da meta: faltam ${brl0(d.meta - media)}/h",
+            13f, if (ok) pal.livreTexto else pal.alerta, 600), ui.lp(top = 8))
+        card.addView(c)
+        v.addView(card)
+
+        v.addView(estatisticas(listOf(
+            "${comGanho.size}/${feitos.size}" to "plantões lançados",
+            (comGanho.sumOf { it.fichas ?: 0 }).toString() to "fichas",
+            (comGanho.sumOf { it.uti ?: 0 }).toString() to "UTI",
+        )), ui.lp(top = 4))
+
+        val pend = feitos.filter { !it.temGanho }
+        if (pend.isNotEmpty()) v.addView(avisoNeutro("${pend.size} plantões sem fichas lançadas", "O total sobe quando você lançar.", "Lançar") { a.lancar(pend.first()) })
+
+        // por hospital
+        if (feitos.isNotEmpty()) {
+            v.addView(ui.secao("Por hospital"))
+            val linhas = feitos.groupBy { it.local }.toSortedMap(String.CASE_INSENSITIVE_ORDER).map { (local, ps) ->
+                val g = ps.filter { it.temGanho }
+                val tot = g.sumOf { it.ganho }; val h = g.sumOf { it.horas }
+                val r = ui.lin()
+                r.setPadding(ui.dp(16), ui.dp(14), ui.dp(16), ui.dp(14))
+                r.addView(ui.ponto(corDo(local), 10))
+                val t = ui.col()
+                t.addView(ui.tv(local, 15f, pal.ink, 600))
+                val regra = d.regras[local]
+                val semValor = (regra == null || !regra.configurada) && ps.any { !it.temGanho }
+                val sub = "${ps.size} plantões · ${horas(ps.sumOf { it.durMin.toLong() })}" + if (semValor) " · configure os valores" else ""
+                t.addView(ui.tv(sub, 12f, if (semValor) pal.alerta else pal.mute), ui.lp(top = 2))
+                if (semValor) r.setOnClickListener { a.editarRegra(local) }
+                r.addView(t, ui.lp(0, WRAP, start = 12, peso = 1f))
+                val dir = ui.col(); dir.gravity = Gravity.END
+                dir.addView(ui.tv(brl0(tot), 15f, pal.ink, 700, num = true).apply { gravity = Gravity.END; maxLines = 1; isSingleLine = true })
+                if (h > 0) dir.addView(ui.tv("${brl0(tot / h)}/h", 12f, if (tot / h >= d.meta) pal.livreTexto else pal.alerta, 600, num = true).apply { gravity = Gravity.END }, ui.lp(WRAP, WRAP, top = 2))
+                r.addView(dir, ui.lp(WRAP, WRAP, start = 8))
+                r
+            }
+            v.addView(ui.grupo(*linhas.toTypedArray()))
+
+            v.addView(ui.secao("Plantões do mês"))
+            feitos.sortedByDescending { it.inicio }.forEach { v.addView(itemRow(it, false, d.now, esmaecer = false)) }
+        } else v.addView(vazioGrande("Nenhum plantão neste mês ainda", "Os ganhos aparecem aqui depois de lançar as fichas."))
+        return v
+    }
+
+    private fun avisoNeutro(titulo: String, texto: String, botao: String, onClick: () -> Unit): View {
+        val c = ui.card(pal.accClaro, pal.accClaro)
+        val r = ui.lin()
+        r.setPadding(ui.dp(16), ui.dp(12), ui.dp(8), ui.dp(12))
+        val t = ui.col()
+        t.addView(ui.tv(titulo, 15f, pal.accEscuro, 600))
+        t.addView(ui.tv(texto, 13f, pal.ink2), ui.lp(top = 3))
+        r.addView(t, ui.lp(0, WRAP, peso = 1f))
+        r.addView(botaoTexto(botao, pal.acc, onClick))
+        c.addView(r)
+        return c
+    }
+
     // ======================= AJUSTES =======================
     fun ajustes(d: Dados, temaAtual: String): View {
         tickers.clear()
@@ -503,6 +635,17 @@ class Telas(private val ui: Ui, private val a: Acoes) {
         }
         temas.addView(tr)
         v.addView(temas)
+
+        v.addView(ui.secao("Ganhos"))
+        val locais = (d.lista.map { it.local } + d.regras.keys).map { it.trim() }.filter { it.isNotEmpty() }.distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
+        val linhasG = mutableListOf(ui.linha("Meta por hora", "${brl0(d.meta)} por hora trabalhada") { a.editarMeta() })
+        for (l in locais) {
+            val r = d.regras[l]
+            val sub = if (r == null || !r.configurada) "Toque para informar quanto paga"
+            else listOf("${brl0(r.porFicha)} por atendimento", if (r.porUti > 0) "${brl0(r.porUti)} por UTI" else "sem UTI").joinToString(" · ")
+            linhasG += ui.linha(l, sub, if (r == null || !r.configurada) pal.alerta else pal.mute) { a.editarRegra(l) }
+        }
+        v.addView(ui.grupo(*linhasG.toTypedArray()))
 
         v.addView(ui.secao("Alarmes"))
         val ok = d.faltas.isEmpty()
