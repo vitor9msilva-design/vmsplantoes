@@ -40,6 +40,8 @@ class TelasShot {
             d = d.plusDays(1)
         }
         out += p("Clínica Norte", "Cinderela", hoje.plusDays(3), 19, 6) // sábado: choca com Hospital Central noite
+        out += p("Clínica Norte", "", hoje.plusDays(5), 7, 12).copy(situacao = Plantao.COBERTURA, colega = "Dra. Ana")
+        out += p("Santa Maria", "", hoje.plusDays(1), 7, 12).copy(situacao = Plantao.REPASSADO, colega = "Dr. Paulo")
         // fichas lançadas nos plantões já encerrados (valores fictícios)
         out.sortedBy { it.inicio }.mapIndexed { i, x ->
             if (x.fim > agora || i % 4 == 3) x
@@ -69,11 +71,15 @@ class TelasShot {
         override fun lancar(p: Plantao) {}
         override fun editarRegra(local: String) {}
         override fun editarMeta() {}
+        override fun marcarRecebido(chave: String, local: String, mesTxt: String, esperado: Double) {}
+        override fun exportar(ano: Int, mes: Int?) {}
     }
 
     private fun dados(faltas: List<String> = emptyList(), dias: Long = 60, antes: Long = 400) =
         Dados(lista.filter { it.inicio < hoje.plusDays(dias).ms() && it.inicio > hoje.minusDays(antes).ms() }, agora, 0, 6, faltas, true, "1.5",
-            mapOf("Santa Clara Sul" to Regra(50.0, 150.0), "Santa Maria" to Regra(50.0, 0.0)), 100.0)
+            mapOf("Santa Clara Sul" to Regra(50.0, 150.0, 40, "carimbo e jaleco"), "Santa Maria" to Regra(50.0, 0.0, 25)), 100.0,
+            mapOf(Recebimentos.chave(2026, 11, "Hospital Central") to Recebido(3600.0, hoje.minusDays(1).ms()),
+                Recebimentos.chave(2026, 11, "Santa Clara Sul") to Recebido(3300.0, hoje.minusDays(1).ms())))
 
     @Before fun cores() {
         Paleta.mapa.clear()
@@ -99,6 +105,7 @@ class TelasShot {
     @Test fun mes() = paparazzi.snapshot(tela { t -> t.calMes = true; t.calendario(dados()) })
     @Test fun livres() = paparazzi.snapshot(tela { t -> t.calModo = 2; t.calendario(dados(dias = 4)) })
     @Test fun ganhos() = paparazzi.snapshot(tela { t -> t.mesGanhos = YearMonth.of(2026, 11); t.ganhos(dados(antes = 9)) })
+    @Test fun ganhosPrevisao() = paparazzi.snapshot(tela { t -> t.mesGanhos = YearMonth.of(2026, 12); t.ganhos(dados(dias = 8, antes = 40)) })
     @Test fun ajustesVerde() = paparazzi.snapshot(tela("verde") { it.ajustes(dados(), "verde") })
     @Test fun inicioPendente() = paparazzi.snapshot(tela { t ->
         val d = dados(antes = 3)

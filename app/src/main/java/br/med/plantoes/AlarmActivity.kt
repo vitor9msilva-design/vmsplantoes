@@ -69,6 +69,9 @@ class AlarmActivity : AppCompatActivity() {
             t(diaLongo(p.inicio.ldt().toLocalDate()), 20f, top = 14)
             t("${hm(p.inicio)} às ${hm(p.fim)} · ${horas(p.durMin.toLong())}", 26f, true)
             t("Começa em ${contagem(p.inicio - System.currentTimeMillis())}", 18f, top = 8)
+            val r = Regras.de(this, p.local)
+            if (kind == 2 && r.deslocMin > 0) t("Saia até ${hm(p.inicio - r.deslocMin * MIN)}", 22f, true, 10)
+            if (r.levar.isNotBlank()) t("Não esquecer: ${r.levar}", 18f, top = 10)
             if (p.obs.isNotBlank()) t(p.obs, 16f, top = 10)
         } else {
             t("Teste de alarme", 36f, true, 14)

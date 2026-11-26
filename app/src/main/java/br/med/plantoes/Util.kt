@@ -64,6 +64,9 @@ fun contagem(ms: Long): String {
 
 fun brl(v: Double): String = NumberFormat.getCurrencyInstance(PT).format(v)
 
+/** "1 plantão", "3 plantões". */
+fun pl(n: Int, um: String, varios: String) = "$n ${if (n == 1) um else varios}"
+
 /** Reais sem centavos: "R$ 1.900". */
 fun brl0(v: Double): String = NumberFormat.getCurrencyInstance(PT).apply { maximumFractionDigits = 0; minimumFractionDigits = 0 }.format(v)
 

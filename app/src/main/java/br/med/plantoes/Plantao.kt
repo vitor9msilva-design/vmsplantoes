@@ -21,7 +21,13 @@ data class Plantao(
     /** Valores usados no cálculo, guardados no lançamento: mudar a tabela depois não altera o passado. */
     val porFicha: Double = 0.0,
     val porUti: Double = 0.0,
+    /** "" = normal; "repassado" = passei para um colega; "cobertura" = estou cobrindo um colega. */
+    val situacao: String = "",
+    val colega: String = "",
 ) {
+    /** Repassado não é mais meu: sai dos alarmes, choques, horários livres e ganhos. */
+    val ativo: Boolean get() = situacao != REPASSADO
+
     val fim: Long get() = inicio + durMin * MIN
     val horas: Double get() = durMin / 60.0
     val lancado: Boolean get() = fichas != null
@@ -41,6 +47,8 @@ data class Plantao(
             if (fichas != null) put("fichas", fichas)
             if (uti != null) put("uti", uti)
             put("porFicha", porFicha); put("porUti", porUti)
+            if (situacao.isNotEmpty()) put("situacao", situacao)
+            if (colega.isNotEmpty()) put("colega", colega)
         }
 
     companion object {
@@ -56,12 +64,24 @@ data class Plantao(
             uti = if (o.has("uti")) o.getInt("uti") else null,
             porFicha = o.optDouble("porFicha", 0.0),
             porUti = o.optDouble("porUti", 0.0),
+            situacao = o.optString("situacao", ""),
+            colega = o.optString("colega", ""),
         )
+
+        const val REPASSADO = "repassado"
+        const val COBERTURA = "cobertura"
     }
 }
 
 /** Quanto cada hospital paga. Guardado nas preferências do celular (nunca no código, que é público). */
-data class Regra(val porFicha: Double = 0.0, val porUti: Double = 0.0) {
+data class Regra(
+    val porFicha: Double = 0.0,
+    val porUti: Double = 0.0,
+    /** Minutos de casa até o hospital (para "saia até"). */
+    val deslocMin: Int = 0,
+    /** Lembrete fixo do hospital, ex.: "levar carimbo e jaleco". */
+    val levar: String = "",
+) {
     val configurada: Boolean get() = porFicha > 0 || porUti > 0
 }
 
@@ -69,7 +89,8 @@ object Regras {
     fun todas(ctx: Context): Map<String, Regra> {
         val o = try { JSONObject(Store.prefs(ctx).getString("regras", "{}")!!) } catch (_: Exception) { JSONObject() }
         return o.keys().asSequence().associateWith { k ->
-            val r = o.getJSONObject(k); Regra(r.optDouble("porFicha", 0.0), r.optDouble("porUti", 0.0))
+            val r = o.getJSONObject(k)
+            Regra(r.optDouble("porFicha", 0.0), r.optDouble("porUti", 0.0), r.optInt("deslocMin", 0), r.optString("levar", ""))
         }
     }
 
@@ -77,7 +98,8 @@ object Regras {
 
     fun salvar(ctx: Context, local: String, r: Regra) {
         val o = try { JSONObject(Store.prefs(ctx).getString("regras", "{}")!!) } catch (_: Exception) { JSONObject() }
-        o.put(local.trim(), JSONObject().put("porFicha", r.porFicha).put("porUti", r.porUti))
+        o.put(local.trim(), JSONObject().put("porFicha", r.porFicha).put("porUti", r.porUti)
+            .put("deslocMin", r.deslocMin).put("levar", r.levar))
         Store.prefs(ctx).edit().putString("regras", o.toString()).apply()
     }
 
@@ -117,6 +139,7 @@ object Store {
         tmp.renameTo(File(ctx.filesDir, "plantoes.json"))
         Paleta.atribuir(ctx, list.map { it.local })
         Alarms.reagendar(ctx)
+        ProximoWidget.atualizar(ctx)
     }
 
     fun adicionar(ctx: Context, novos: List<Plantao>) {
@@ -151,6 +174,8 @@ object Store {
                         if (p.fichas != null) put("fichas", p.fichas)
                         if (p.uti != null) put("uti", p.uti)
                         if (p.lancado) { put("porFicha", p.porFicha); put("porUti", p.porUti) }
+                        if (p.situacao.isNotEmpty()) put("situacao", p.situacao)
+                        if (p.colega.isNotEmpty()) put("colega", p.colega)
                     }
             )
         }
@@ -174,6 +199,7 @@ object Store {
                 fichas = if (x.has("fichas")) x.getInt("fichas") else null,
                 uti = if (x.has("uti")) x.getInt("uti") else null,
                 porFicha = x.optDouble("porFicha", 0.0), porUti = x.optDouble("porUti", 0.0),
+                situacao = x.optString("situacao", ""), colega = x.optString("colega", ""),
             )
         }
     }
@@ -183,7 +209,7 @@ object Store {
 
     /** Ids dos plantões que se sobrepõem a outro. */
     fun conflitos(list: List<Plantao>): Set<String> {
-        val s = list.sortedBy { it.inicio }
+        val s = list.filter { it.ativo }.sortedBy { it.inicio }
         val out = mutableSetOf<String>()
         for (i in s.indices) {
             var j = i + 1
@@ -202,7 +228,7 @@ data class Janela(val ini: Long, val fim: Long, val antes: Plantao?, val depois:
 /** Calcula os intervalos livres entre plantões, opcionalmente reservando descanso após cada um. */
 object Livre {
     private fun ocupado(list: List<Plantao>, restMin: Int): List<LongArray> {
-        val iv = list.map { longArrayOf(it.inicio, it.fim + restMin * MIN) }.sortedBy { it[0] }
+        val iv = list.filter { it.ativo }.map { longArrayOf(it.inicio, it.fim + restMin * MIN) }.sortedBy { it[0] }
         val out = mutableListOf<LongArray>()
         for (x in iv) {
             val last = out.lastOrNull()
@@ -226,8 +252,46 @@ object Livre {
     }
 
     private fun mk(list: List<Plantao>, a: Long, b: Long, r: Int) =
-        Janela(a, b, list.lastOrNull { it.fim + r * MIN == a }, list.firstOrNull { it.inicio == b })
+        Janela(a, b, list.lastOrNull { it.ativo && it.fim + r * MIN == a }, list.firstOrNull { it.ativo && it.inicio == b })
 
     fun livreNoDia(list: List<Plantao>, d: java.time.LocalDate, r: Int): Long =
         janelas(list, d.ms(), d.plusDays(1).ms(), r).sumOf { it.fim - it.ini } / MIN
+}
+
+/** Pagamento recebido de um hospital num mês (para conferir com o esperado). */
+data class Recebido(val valor: Double, val quando: Long)
+
+object Recebimentos {
+    fun chave(ano: Int, mes: Int, local: String) = "%04d-%02d|%s".format(ano, mes, local.trim())
+
+    fun todos(ctx: Context): Map<String, Recebido> {
+        val o = try { JSONObject(Store.prefs(ctx).getString("recebidos", "{}")!!) } catch (_: Exception) { JSONObject() }
+        return o.keys().asSequence().associateWith { k -> val r = o.getJSONObject(k); Recebido(r.optDouble("valor"), r.optLong("quando")) }
+    }
+
+    fun salvar(ctx: Context, chave: String, r: Recebido?) {
+        val o = try { JSONObject(Store.prefs(ctx).getString("recebidos", "{}")!!) } catch (_: Exception) { JSONObject() }
+        if (r == null) o.remove(chave) else o.put(chave, JSONObject().put("valor", r.valor).put("quando", r.quando))
+        Store.prefs(ctx).edit().putString("recebidos", o.toString()).apply()
+    }
+}
+
+/** Jornada = plantões emendados (intervalo menor que 1 h entre eles) contados como um bloco só. */
+data class Jornada(val ini: Long, val fim: Long, val plantoes: List<Plantao>) {
+    val horas: Double get() = (fim - ini) / HOUR.toDouble()
+}
+
+object Jornadas {
+    fun calcular(list: List<Plantao>): List<Jornada> {
+        val out = mutableListOf<Jornada>()
+        for (p in list.filter { it.ativo }.sortedBy { it.inicio }) {
+            val ult = out.lastOrNull()
+            if (ult != null && p.inicio <= ult.fim + HOUR) out[out.size - 1] = Jornada(ult.ini, maxOf(ult.fim, p.fim), ult.plantoes + p)
+            else out.add(Jornada(p.inicio, p.fim, listOf(p)))
+        }
+        return out
+    }
+
+    /** Jornadas acima do limite (padrão 24 h seguidas). */
+    fun longas(list: List<Plantao>, limiteH: Double = 24.0) = calcular(list).filter { it.horas > limiteH }
 }

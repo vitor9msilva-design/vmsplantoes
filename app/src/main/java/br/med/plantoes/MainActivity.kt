@@ -68,6 +68,66 @@ class MainActivity : AppCompatActivity(), Acoes {
         } catch (_: Exception) { Toast.makeText(this, "Não foi possível salvar o arquivo.", Toast.LENGTH_LONG).show() }
     }
 
+    private var exportarPendente: Pair<Int, Int?>? = null
+    private val criarPlanilha = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        val (ano, mes) = exportarPendente ?: return@registerForActivityResult
+        if (uri == null) return@registerForActivityResult
+        try {
+            contentResolver.openOutputStream(uri)!!.use { it.write(planilha(ano, mes).toByteArray(Charsets.UTF_8)) }
+            Snackbar.make(box, "Planilha salva. Abra no Excel, Google Planilhas ou envie ao contador.", Snackbar.LENGTH_LONG).show()
+        } catch (_: Exception) { Toast.makeText(this, "Não foi possível salvar a planilha.", Toast.LENGTH_LONG).show() }
+    }
+
+    /** Planilha CSV no padrão brasileiro (ponto e vírgula, vírgula decimal), abre direto no Excel. */
+    private fun planilha(ano: Int, mes: Int?): String {
+        fun n(v: Double) = "%.2f".format(java.util.Locale.US, v).replace(".", ",")
+        fun q(t: String) = "\"" + t.replace("\"", "\"\"") + "\""
+        val ps = itens.filter { val l = it.inicio.ldt(); l.year == ano && (mes == null || l.monthValue == mes) }.sortedBy { it.inicio }
+        val sb = StringBuilder("\uFEFF")
+        sb.append("Data;Dia;Início;Fim;Hospital;Setor;Horas;Situação;Fichas;UTI;R$ por ficha;R$ por UTI;Valor fixo;Ganho;R$ por hora\n")
+        for (p in ps) {
+            val l = p.inicio.ldt()
+            val sit = when (p.situacao) { Plantao.REPASSADO -> "Repassado " + p.colega; Plantao.COBERTURA -> "Cobertura " + p.colega; else -> "" }.trim()
+            val ganho = if (p.ativo && p.temGanho) p.ganho else 0.0
+            sb.append(listOf(
+                "%02d/%02d/%04d".format(l.dayOfMonth, l.monthValue, l.year), q(diaCurto(p.inicio).substringBefore(" ")), hm(p.inicio), hm(p.fim),
+                q(p.local), q(p.setor), n(p.horas), q(sit), (p.fichas ?: "").toString(), (p.uti ?: "").toString(),
+                if (p.lancado) n(p.porFicha) else "", if (p.lancado) n(p.porUti) else "", if (p.valor > 0) n(p.valor) else "",
+                if (p.ativo && p.temGanho) n(ganho) else "", if (p.ativo && p.temGanho) n(p.porHora) else "",
+            ).joinToString(";")).append("\n")
+        }
+        val meus = ps.filter { it.ativo && it.temGanho }
+        sb.append("\n;;;;Total;;${n(meus.sumOf { it.horas })};;${meus.sumOf { it.fichas ?: 0 }};${meus.sumOf { it.uti ?: 0 }};;;;${n(meus.sumOf { it.ganho })};")
+        sb.append(if (meus.sumOf { it.horas } > 0) n(meus.sumOf { it.ganho } / meus.sumOf { it.horas }) else "").append("\n")
+        val rec = Recebimentos.todos(this)
+        val chaves = rec.keys.filter { it.startsWith("%04d-".format(ano)) && (mes == null || it.startsWith("%04d-%02d".format(ano, mes))) }.sorted()
+        if (chaves.isNotEmpty()) {
+            sb.append("\nRecebimentos;Hospital;Valor recebido;Data\n")
+            for (k in chaves) { val r = rec[k]!!; sb.append("${k.substringBefore("|")};${q(k.substringAfter("|"))};${n(r.valor)};${diaCurto(r.quando)}\n") }
+        }
+        return sb.toString()
+    }
+
+    override fun exportar(ano: Int, mes: Int?) {
+        exportarPendente = ano to mes
+        criarPlanilha.launch(if (mes == null) "plantoes-$ano.csv" else "plantoes-%04d-%02d.csv".format(ano, mes))
+    }
+
+    override fun marcarRecebido(chave: String, local: String, mesTxt: String, esperado: Double) {
+        val atual = Recebimentos.todos(this)[chave]
+        val v = ui.col(20, 4)
+        v.addView(ui.tv("Esperado: ${brl(esperado)}\nInforme quanto caiu na conta.", 14f, pal.mute), ui.lp(top = 4))
+        val campoV = numero("Valor recebido", fmtNum(atual?.valor ?: esperado), true)
+        v.addView(campo("Valor recebido (R$)", campoV))
+        val b = MaterialAlertDialogBuilder(this).setTitle("$local · $mesTxt").setView(v)
+            .setPositiveButton("Marcar recebido") { _, _ ->
+                Recebimentos.salvar(this, chave, Recebido(txt2num(campoV.text), System.currentTimeMillis())); render(false)
+            }
+            .setNegativeButton("Cancelar", null)
+        if (atual != null) b.setNeutralButton("Desmarcar") { _, _ -> Recebimentos.salvar(this, chave, null); render(false) }
+        b.show()
+    }
+
     private val abrirArquivo = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@registerForActivityResult
         val novos = try {
@@ -155,6 +215,7 @@ class MainActivity : AppCompatActivity(), Acoes {
         versao = Atualizador.nomeVersao(this),
         regras = Regras.todas(this),
         meta = Regras.meta(this),
+        recebidos = Recebimentos.todos(this),
     )
 
     /** Redesenha a aba atual. Com `animar`, o conteúdo entra deslizando de leve (troca de aba). */
@@ -352,6 +413,20 @@ class MainActivity : AppCompatActivity(), Acoes {
         }
         if (p == null) v.addView(campo("Repetir", rep, true))
 
+        // troca de plantão: repassei para um colega / estou cobrindo um colega
+        val sits = listOf("" to "Meu plantão", Plantao.COBERTURA to "Estou cobrindo um colega", Plantao.REPASSADO to "Passei para um colega")
+        val sit = MaterialAutoCompleteTextView(this).apply {
+            inputType = InputType.TYPE_NULL; setSimpleItems(sits.map { it.second }.toTypedArray())
+            setText(sits.firstOrNull { it.first == (p?.situacao ?: "") }?.second ?: sits[0].second, false)
+        }
+        val colega = TextInputEditText(this).apply { setText(p?.colega ?: ""); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS }
+        val campoColega = campo("Nome do colega (opcional)", colega)
+        fun ajustaColega() { campoColega.visibility = if (sit.text.toString() == sits[0].second) View.GONE else View.VISIBLE }
+        sit.setOnItemClickListener { _, _, _, _ -> ajustaColega() }
+        ajustaColega()
+        v.addView(campo("Situação", sit, true))
+        v.addView(campoColega)
+
         val botoes = ui.lin()
         botoes.gravity = Gravity.END or Gravity.CENTER_VERTICAL
         val cancelar = MaterialButton(this, null, com.google.android.material.R.attr.borderlessButtonStyle).apply { text = "Cancelar"; isAllCaps = false }
@@ -365,18 +440,30 @@ class MainActivity : AppCompatActivity(), Acoes {
             val horasDur = dur.text.toString().substringBefore(" ").toIntOrNull() ?: 12
             val vv = valor.text.toString().replace(",", ".").toDoubleOrNull() ?: 0.0
             val antes = Store.conflitos(itens).size
+            val longasAntes = Jornadas.longas(itens).size
+            val situacao = sits.firstOrNull { it.second == sit.text.toString() }?.first ?: ""
+            val nomeColega = if (situacao.isEmpty()) "" else colega.text.toString().trim()
             if (p != null) {
-                Store.atualizar(this, p.copy(local = nome, setor = setor.text.toString().trim(), inicio = ini.ms(), durMin = horasDur * 60, valor = vv, obs = obs.text.toString().trim()))
+                Store.atualizar(this, p.copy(local = nome, setor = setor.text.toString().trim(), inicio = ini.ms(), durMin = horasDur * 60, valor = vv,
+                    obs = obs.text.toString().trim(), situacao = situacao, colega = nomeColega))
             } else {
                 val (n, passo) = reps.firstOrNull { it.first == rep.text.toString() }?.second ?: (1 to 0)
                 Store.adicionar(this, (0 until n).map { i ->
                     Plantao(local = nome, setor = setor.text.toString().trim(), inicio = ini.plusDays((i * passo).toLong()).ms(),
-                        durMin = horasDur * 60, valor = vv, obs = obs.text.toString().trim())
+                        durMin = horasDur * 60, valor = vv, obs = obs.text.toString().trim(), situacao = situacao, colega = nomeColega)
                 })
             }
             sheet.dismiss(); render(false)
+            val novasLongas = Jornadas.longas(itens)
             if (Store.conflitos(itens).size > antes)
                 Snackbar.make(box, "Atenção: este plantão bate com outro já agendado.", Snackbar.LENGTH_LONG).setAnchorView(fab).show()
+            else if (novasLongas.size > longasAntes) {
+                val j = novasLongas.maxBy { it.horas }
+                MaterialAlertDialogBuilder(this).setTitle("Jornada longa")
+                    .setMessage("Com este plantão você fica ${horasCurto(Math.round(j.horas * 60))} seguidas trabalhando " +
+                        "(${diaCurto(j.ini)} ${hm(j.ini)} até ${diaCurto(j.fim)} ${hm(j.fim)}).\n\nO plantão foi salvo. Se puder, reserve descanso depois.")
+                    .setPositiveButton("Entendi", null).show()
+            }
         }
 
         val sv = NestedScrollView(this); sv.addView(v)
@@ -520,11 +607,19 @@ class MainActivity : AppCompatActivity(), Acoes {
         val v = ui.col(20, 4)
         val vf = numero("R$ por atendimento", if (r.porFicha > 0) fmtNum(r.porFicha) else "", true)
         val vu = numero("R$ por UTI", if (r.porUti > 0) fmtNum(r.porUti) else "", true)
-        v.addView(ui.tv("Valores líquidos que este hospital paga. Deixe UTI em branco se não houver adicional.", 14f, pal.mute), ui.lp(top = 4))
+        v.addView(ui.tv("Valores líquidos que este hospital paga (deixe UTI em branco se não houver), o tempo de deslocamento e o que não pode esquecer.", 14f, pal.mute), ui.lp(top = 4))
         v.addView(campo("R$ por atendimento (ficha)", vf))
         v.addView(campo("R$ por paciente de UTI", vu))
-        MaterialAlertDialogBuilder(this).setTitle(local).setView(v)
-            .setPositiveButton("Salvar") { _, _ -> Regras.salvar(this, local, Regra(txt2num(vf.text), txt2num(vu.text))); render(false) }
+        val desloc = numero("Minutos", if (r.deslocMin > 0) r.deslocMin.toString() else "")
+        v.addView(campo("Tempo de casa até lá (minutos)", desloc))
+        val levar = TextInputEditText(this).apply { setText(r.levar); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES }
+        v.addView(campo("Não esquecer (ex.: carimbo, jaleco)", levar))
+        val sv = NestedScrollView(this); sv.addView(v)
+        MaterialAlertDialogBuilder(this).setTitle(local).setView(sv)
+            .setPositiveButton("Salvar") { _, _ ->
+                Regras.salvar(this, local, Regra(txt2num(vf.text), txt2num(vu.text), txt2num(desloc.text).toInt(), levar.text.toString().trim()))
+                ProximoWidget.atualizar(this); render(false)
+            }
             .setNegativeButton("Cancelar", null).show()
     }
 

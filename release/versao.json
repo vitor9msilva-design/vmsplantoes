@@ -1,5 +1,5 @@
 {
-  "versionCode": 6,
-  "versionName": "1.5",
-  "novidades": "• Ganhos por produtividade: ao fim de cada plantão o app pergunta quantas fichas e UTI você atendeu e calcula o ganho e o R$/hora.\n• Nova aba Ganhos: total do mês, média por hora contra a sua meta e resultado por hospital.\n• Em Ajustes › Ganhos: informe quanto cada hospital paga por atendimento e por UTI, e a sua meta por hora.\n• Horários livres agora ficam dentro do Calendário."
+  "versionCode": 7,
+  "versionName": "1.6",
+  "novidades": "• Fechamento do mês: marque quando cada hospital pagou e veja se o valor confere.\n• Previsão de quanto você fecha o mês.\n• Troca de plantão: marque \"Passei para um colega\" ou \"Estou cobrindo um colega\".\n• Planilha do mês ou do ano para Excel e contador.\n• Aviso de jornada longa (mais de 24 h seguidas) e carga da semana.\n• Por hospital: tempo de trajeto (\"Saia até\") e o que não pode esquecer.\n• Widget na tela inicial com o próximo plantão."
 }

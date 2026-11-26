@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/w_raiz"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_fundo"
+    android:orientation="horizontal"
+    android:padding="14dp">
+
+    <View
+        android:id="@+id/w_faixa"
+        android:layout_width="4dp"
+        android:layout_height="match_parent"
+        android:layout_marginEnd="12dp"
+        android:background="#1D4ED8" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView android:id="@+id/w_rotulo" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textColor="#64748B" android:textSize="12sp" android:maxLines="1" android:ellipsize="end" />
+        <TextView android:id="@+id/w_local" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="2dp" android:textColor="#0B1220" android:textSize="17sp" android:textStyle="bold"
+            android:maxLines="1" android:ellipsize="end" />
+        <TextView android:id="@+id/w_quando" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="2dp" android:textColor="#334155" android:textSize="13sp" android:maxLines="1" />
+        <TextView android:id="@+id/w_extra" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="2dp" android:textColor="#1D4ED8" android:textSize="12sp" android:textStyle="bold" android:maxLines="1" />
+    </LinearLayout>
+</LinearLayout>

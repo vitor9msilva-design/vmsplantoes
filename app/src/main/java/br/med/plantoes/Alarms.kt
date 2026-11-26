@@ -91,7 +91,7 @@ object Alarms {
         }
         val now = System.currentTimeMillis()
         val codes = mutableSetOf<String>()
-        loop@ for (p in Store.all(ctx).filter { it.inicio > now }.sortedBy { it.inicio }) {
+        loop@ for (p in Store.all(ctx).filter { it.inicio > now && it.ativo }.sortedBy { it.inicio }) {
             for ((kind, antes) in listOf(1 to DAY, 2 to 2 * HOUR)) {
                 val t = p.inicio - antes
                 if (t <= now) continue
@@ -102,7 +102,7 @@ object Alarms {
             }
         }
         // aviso de fim de plantão para lançar as fichas (não precisa ser exato ao minuto)
-        for (p in Store.all(ctx).filter { it.fim > now && !it.lancado }.sortedBy { it.fim }.take(60)) {
+        for (p in Store.all(ctx).filter { it.fim > now && !it.lancado && it.ativo && it.valor <= 0 }.sortedBy { it.fim }.take(60)) {
             val code = base(p.id) + 4
             val pi = PendingIntent.getBroadcast(
                 ctx, code, intent(ctx, p.id, 4), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -132,13 +132,17 @@ class AlarmReceiver : BroadcastReceiver() {
         val p = Store.all(ctx).find { it.id == id }
         if (kind == 4) { if (p != null && !p.lancado) avisoFichas(ctx, nm, p); return }
         if (p == null && id != "teste") return
+        if (p != null && !p.ativo) return
+        val regra = p?.let { Regras.de(ctx, it.local) }
         Alarms.canal(ctx)
         val nid = id.hashCode() xor kind
 
         val titulo = (if (kind == 1) "Plantão amanhã" else "Plantão em 2 horas") + (p?.let { " · ${it.local}" } ?: "")
         val texto = p?.let {
             "${diaCurto(it.inicio)}, ${hm(it.inicio)} às ${hm(it.fim)} · ${horas(it.durMin.toLong())}" +
-                (if (it.setor.isNotBlank()) " · ${it.setor}" else "")
+                (if (it.setor.isNotBlank()) " · ${it.setor}" else "") +
+                (if (regra != null && regra.deslocMin > 0) "\nSaia até ${hm(it.inicio - regra.deslocMin * MIN)}" else "") +
+                (if (regra != null && regra.levar.isNotBlank()) "\nNão esquecer: ${regra.levar}" else "")
         } ?: "Teste de alarme"
 
         val tela = Intent(ctx, AlarmActivity::class.java)
@@ -196,5 +200,6 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, i: Intent) {
         Alarms.canal(ctx)
         Alarms.reagendar(ctx)
+        ProximoWidget.atualizar(ctx)
     }
 }

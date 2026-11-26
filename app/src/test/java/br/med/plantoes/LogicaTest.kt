@@ -65,3 +65,22 @@ class GanhoTest {
         assertTrue(!pendente.temGanho)
     }
 }
+
+class JornadaTest {
+    private fun p(dia: String, h: Int, dur: Int, sit: String = "") =
+        Plantao(local = "X", inicio = LocalDate.parse(dia).atTime(h, 0).ms(), durMin = dur * 60, situacao = sit)
+
+    @Test fun emendaComIntervaloCurto() {
+        // terça 13h–07h, quarta 08h–20h: 1 h de intervalo conta como jornada contínua de 31 h
+        val js = Jornadas.calcular(listOf(p("2027-01-05", 13, 18), p("2027-01-06", 8, 12)))
+        assertEquals(1, js.size); assertEquals(31.0, js[0].horas, 0.01)
+        assertEquals(1, Jornadas.longas(listOf(p("2027-01-05", 13, 18), p("2027-01-06", 8, 12))).size)
+    }
+
+    @Test fun repassadoNaoConta() {
+        val l = listOf(p("2027-01-05", 13, 18), p("2027-01-06", 8, 12, Plantao.REPASSADO))
+        assertTrue(Jornadas.longas(l).isEmpty())
+        assertTrue(Store.conflitos(l + p("2027-01-06", 9, 2, Plantao.REPASSADO)).isEmpty())
+        assertEquals(1440L, Livre.livreNoDia(listOf(p("2027-01-07", 8, 12, Plantao.REPASSADO)), LocalDate.parse("2027-01-07"), 0))
+    }
+}
