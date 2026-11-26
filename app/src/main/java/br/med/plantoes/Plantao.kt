@@ -24,7 +24,13 @@ data class Plantao(
     /** "" = normal; "repassado" = passei para um colega; "cobertura" = estou cobrindo um colega. */
     val situacao: String = "",
     val colega: String = "",
+    /** "" ou "fixo" = da escala fixa; "avulso" = plantão extra pego à parte. */
+    val tipo: String = "",
+    /** Escala automática que gerou este plantão ("" = cadastrado à mão). */
+    val serieId: String = "",
 ) {
+    val avulso: Boolean get() = tipo == AVULSO
+
     /** Repassado não é mais meu: sai dos alarmes, choques, horários livres e ganhos. */
     val ativo: Boolean get() = situacao != REPASSADO
 
@@ -49,6 +55,8 @@ data class Plantao(
             put("porFicha", porFicha); put("porUti", porUti)
             if (situacao.isNotEmpty()) put("situacao", situacao)
             if (colega.isNotEmpty()) put("colega", colega)
+            if (tipo.isNotEmpty()) put("tipo", tipo)
+            if (serieId.isNotEmpty()) put("serieId", serieId)
         }
 
     companion object {
@@ -66,8 +74,12 @@ data class Plantao(
             porUti = o.optDouble("porUti", 0.0),
             situacao = o.optString("situacao", ""),
             colega = o.optString("colega", ""),
+            tipo = o.optString("tipo", ""),
+            serieId = o.optString("serieId", ""),
         )
 
+        const val AVULSO = "avulso"
+        const val FIXO = "fixo"
         const val REPASSADO = "repassado"
         const val COBERTURA = "cobertura"
     }
@@ -176,6 +188,7 @@ object Store {
                         if (p.lancado) { put("porFicha", p.porFicha); put("porUti", p.porUti) }
                         if (p.situacao.isNotEmpty()) put("situacao", p.situacao)
                         if (p.colega.isNotEmpty()) put("colega", p.colega)
+                        if (p.tipo.isNotEmpty()) put("tipo", p.tipo)
                     }
             )
         }
@@ -200,6 +213,7 @@ object Store {
                 uti = if (x.has("uti")) x.getInt("uti") else null,
                 porFicha = x.optDouble("porFicha", 0.0), porUti = x.optDouble("porUti", 0.0),
                 situacao = x.optString("situacao", ""), colega = x.optString("colega", ""),
+                tipo = x.optString("tipo", ""),
             )
         }
     }
@@ -354,7 +368,7 @@ object Fixos {
 
 /** Cópia de segurança completa: plantões e todas as configurações. */
 object Backup {
-    private val CHAVES = listOf("regras", "recebidos", "fixos", "cores", "tema", "metaHora", "metaMes", "descansoH", "minLivreH", "volMax")
+    private val CHAVES = listOf("series", "regras", "recebidos", "fixos", "cores", "tema", "metaHora", "metaMes", "descansoH", "minLivreH", "volMax")
 
     fun gerar(ctx: Context): String {
         val p = Store.prefs(ctx)
@@ -384,5 +398,150 @@ object Backup {
         Paleta.carregar(ctx)
         Store.substituir(ctx, ps)
         return ps.size
+    }
+}
+
+/**
+ * Escala automática: um plantão fixo que se repete (toda semana, a cada 15 dias...) sem data para acabar.
+ * O app gera as próximas ocorrências sozinho, sempre [HORIZONTE_DIAS] à frente.
+ */
+data class Serie(
+    val id: String = UUID.randomUUID().toString(),
+    val local: String,
+    val setor: String = "",
+    val hora: String,            // "HH:MM"
+    val durMin: Int,
+    val inicio: String,          // primeira data, "AAAA-MM-DD"
+    val intervalo: Int,          // dias entre ocorrências: 7, 14, 21, 28
+    val ate: String = "",        // última data possível, "" = sem fim
+    val valor: Double = 0.0,
+    val obs: String = "",
+    /** Datas removidas ou editadas à parte, que não devem ser recriadas. */
+    val excecoes: Set<String> = emptySet(),
+) {
+    fun ocorrencias(de: java.time.LocalDate, ate2: java.time.LocalDate): List<java.time.LocalDate> {
+        val ini = java.time.LocalDate.parse(inicio)
+        val lim = if (ate.isEmpty()) ate2 else minOf(ate2, java.time.LocalDate.parse(ate))
+        val out = mutableListOf<java.time.LocalDate>()
+        var k = if (de <= ini) 0L else (java.time.temporal.ChronoUnit.DAYS.between(ini, de) + intervalo - 1) / intervalo
+        while (true) {
+            val d = ini.plusDays(k * intervalo)
+            if (d > lim) break
+            if (d >= de && d.toString() !in excecoes) out.add(d)
+            k++
+        }
+        return out
+    }
+
+    fun descricao(): String {
+        val d = java.time.LocalDate.parse(inicio)
+        val dia = d.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, PT).replaceFirstChar { it.titlecase(PT) }
+        val freq = when (intervalo) { 7 -> "toda semana"; 14 -> "a cada 15 dias"; 21 -> "a cada 3 semanas"; 28 -> "a cada 4 semanas"; else -> "a cada $intervalo dias" }
+        return "$dia, $hora · ${horas(durMin.toLong())} · $freq"
+    }
+
+    fun toJson(): JSONObject = JSONObject().put("id", id).put("local", local).put("setor", setor).put("hora", hora)
+        .put("durMin", durMin).put("inicio", inicio).put("intervalo", intervalo).put("ate", ate).put("valor", valor)
+        .put("obs", obs).put("excecoes", JSONArray(excecoes.toList()))
+
+    companion object {
+        const val HORIZONTE_DIAS = 120L
+        fun fromJson(o: JSONObject) = Serie(
+            o.getString("id"), o.getString("local"), o.optString("setor", ""), o.getString("hora"), o.getInt("durMin"),
+            o.getString("inicio"), o.getInt("intervalo"), o.optString("ate", ""), o.optDouble("valor", 0.0), o.optString("obs", ""),
+            o.optJSONArray("excecoes")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() } ?: emptySet(),
+        )
+    }
+}
+
+object Series {
+    fun todas(ctx: Context): List<Serie> {
+        val arr = try { JSONArray(Store.prefs(ctx).getString("series", "[]")!!) } catch (_: Exception) { JSONArray() }
+        return (0 until arr.length()).mapNotNull { try { Serie.fromJson(arr.getJSONObject(it)) } catch (_: Exception) { null } }
+    }
+
+    private fun gravar(ctx: Context, l: List<Serie>) {
+        val arr = JSONArray(); l.forEach { arr.put(it.toJson()) }
+        Store.prefs(ctx).edit().putString("series", arr.toString()).apply()
+    }
+
+    fun de(ctx: Context, id: String) = todas(ctx).firstOrNull { it.id == id }
+
+    fun salvar(ctx: Context, s: Serie) {
+        val l = todas(ctx).toMutableList()
+        val i = l.indexOfFirst { it.id == s.id }
+        if (i >= 0) l[i] = s else l.add(s)
+        gravar(ctx, l)
+    }
+
+    fun remover(ctx: Context, id: String) = gravar(ctx, todas(ctx).filter { it.id != id })
+
+    /** Marca uma data como exceção (o plantão daquele dia foi apagado ou mudou à parte). */
+    fun excecao(ctx: Context, id: String, data: String) {
+        val s = de(ctx, id) ?: return
+        salvar(ctx, s.copy(excecoes = s.excecoes + data))
+    }
+
+    fun idDe(serie: String, data: java.time.LocalDate) = "s:$serie:$data"
+
+    fun plantao(s: Serie, d: java.time.LocalDate): Plantao {
+        val (h, m) = s.hora.split(":").map { it.trim().toInt() }
+        return Plantao(id = idDe(s.id, d), local = s.local, setor = s.setor, inicio = d.atTime(h, m).ms(), durMin = s.durMin,
+            valor = s.valor, obs = s.obs, tipo = Plantao.FIXO, serieId = s.id)
+    }
+
+    /** Data da ocorrência de um plantão da escala (tirada do id; se não der, a data de início). */
+    fun dataDe(p: Plantao): java.time.LocalDate =
+        if (p.id.startsWith("s:")) try { java.time.LocalDate.parse(p.id.substringAfterLast(":")) } catch (_: Exception) { p.inicio.ldt().toLocalDate() }
+        else p.inicio.ldt().toLocalDate()
+
+    /** Liga à escala os plantões já cadastrados no mesmo local e horário de uma ocorrência (não duplica nada). */
+    fun adotar(ctx: Context, s: Serie) {
+        val fim = java.time.LocalDate.now().plusDays(Serie.HORIZONTE_DIAS)
+        val porChave = s.ocorrencias(java.time.LocalDate.parse(s.inicio), fim)
+            .associateBy { d -> plantao(s, d).let { it.local.trim().lowercase(PT) + "|" + it.inicio } }
+        val l = Store.all(ctx).toMutableList()
+        var mudou = false
+        for (i in l.indices) {
+            val p = l[i]
+            if (p.serieId.isNotEmpty()) continue
+            val d = porChave[p.local.trim().lowercase(PT) + "|" + p.inicio] ?: continue
+            l[i] = p.copy(id = idDe(s.id, d), serieId = s.id, tipo = Plantao.FIXO); mudou = true
+        }
+        if (mudou) Store.substituir(ctx, l)
+    }
+
+    /** Salva a escala, aproveita os plantões que já existem e gera os que faltam. Retorna quantos foram criados. */
+    fun criar(ctx: Context, s: Serie): Int { salvar(ctx, s); adotar(ctx, s); return gerar(ctx) }
+
+    /** Encerra a escala a partir de uma data: apaga os plantões dela daí em diante que ainda não têm fichas lançadas. */
+    fun encerrar(ctx: Context, id: String, aPartirDe: java.time.LocalDate) {
+        val s = de(ctx, id) ?: return
+        if (aPartirDe <= java.time.LocalDate.parse(s.inicio)) remover(ctx, id)
+        else salvar(ctx, s.copy(ate = aPartirDe.minusDays(1).toString()))
+        val corte = aPartirDe.ms()
+        val rem = Store.all(ctx).filter { it.serieId == id && it.inicio >= corte && !it.lancado }.map { it.id }.toSet()
+        if (rem.isNotEmpty()) Store.remover(ctx, rem)
+    }
+
+    /**
+     * Cria os plantões que faltam de todas as escalas, de hoje até o horizonte.
+     * Nunca duplica: pula datas que já têm plantão com o mesmo id, ou no mesmo local e horário.
+     * Retorna quantos plantões novos foram criados.
+     */
+    fun gerar(ctx: Context): Int {
+        val hoje = java.time.LocalDate.now()
+        val fim = hoje.plusDays(Serie.HORIZONTE_DIAS)
+        val lista = Store.all(ctx)
+        val ids = lista.map { it.id }.toHashSet()
+        val chaves = lista.map { it.local.trim().lowercase(PT) + "|" + it.inicio }.toHashSet()
+        val novos = mutableListOf<Plantao>()
+        for (s in todas(ctx)) for (d in s.ocorrencias(hoje, fim)) {
+            val p = plantao(s, d)
+            if (p.id in ids || (p.local.trim().lowercase(PT) + "|" + p.inicio) in chaves) continue
+            novos.add(p); ids.add(p.id)
+        }
+        if (novos.isNotEmpty()) Store.adicionar(ctx, novos)
+        return novos.size
     }
 }

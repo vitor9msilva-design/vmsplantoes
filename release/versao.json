@@ -1,5 +1,5 @@
 {
-  "versionCode": 8,
-  "versionName": "1.7",
-  "novidades": "• Nova aba Financeiro, com Mês e Linha do tempo (gráfico dos últimos 12 meses e o resumo do ano).\n• Salário ou renda fixa mensal (ex.: contrato CLT), somado ao total do mês. Os plantões do local vinculado não pedem fichas.\n• Meta do mês em reais, com previsão de quanto você vai fechar.\n• Análises automáticas: qual hospital rende mais por hora e como seu R$/h mudou.\n• Backup e restauração de tudo num arquivo.\n• Bloqueio com digital ou senha do celular."
+  "versionCode": 9,
+  "versionName": "1.8",
+  "novidades": "• Plantão Fixo ou Avulso: os avulsos têm etiqueta e contorno tracejado no calendário.\n• Escala automática: escolha Repetir (toda semana, a cada 15 dias...) e o app cria os próximos plantões sozinho, sem fim, até você mudar.\n• Editar ou excluir na escala: Só este, Este e os próximos, ou Encerrar escala.\n• Meta automática: cada plantão fixo vale R$ 100/h de meta, e embaixo aparece quanto ficou acima ou abaixo.\n• A meta do mês soma os fixos e o salário; os avulsos aparecem como extra."
 }

@@ -16,6 +16,16 @@ import java.time.temporal.ChronoUnit
 
 private val DIAS = arrayOf("D", "S", "T", "Q", "Q", "S", "S")
 
+private val traco = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+
+/** Contorno tracejado: marca plantões avulsos no calendário. */
+private fun View.tracejado(c: Canvas, r: RectF, rad: Float, cor: Int) {
+    traco.color = cor; traco.strokeWidth = context.dpf(1.5f)
+    traco.pathEffect = android.graphics.DashPathEffect(floatArrayOf(context.dpf(4f), context.dpf(3f)), 0f)
+    val x = RectF(r); x.inset(context.dpf(0.75f), context.dpf(0.75f))
+    c.drawRoundRect(x, rad, rad, traco)
+}
+
 /** Mistura a cor do hospital com branco: fundo claro do bloco, mantendo o tom do hospital. */
 private fun tinta(cor: Int, f: Float) = ColorUtils.blendARGB(Color.WHITE, cor, f)
 
@@ -112,6 +122,7 @@ class WeekView(ctx: Context, private val pal: Pal) : View(ctx) {
                 paint.color = cc
                 c.save(); c.clipRect(r.left, r.top, r.left + dpf(3f), r.bottom)
                 c.drawRoundRect(r, rad, rad, paint); c.restore()
+                if (p.avulso) tracejado(c, r, rad, cc)
                 hits.add(RectF(r) to p)
                 c.save(); c.clipRect(r)
                 tp.textAlign = Paint.Align.LEFT; tp.color = escura(cc)
@@ -231,6 +242,7 @@ class MonthView(ctx: Context, private val pal: Pal) : View(ctx) {
                 val cc = if (p.id in choques) pal.choque else corDo(p.local)
                 paint.color = if (noMes) tinta(cc, 0.2f) else tinta(cc, 0.1f)
                 c.drawRoundRect(b, dpf(4f), dpf(4f), paint)
+                if (p.avulso) tracejado(c, b, dpf(4f), cc)
                 c.save(); c.clipRect(b)
                 tp.color = escura(cc); tp.textSize = context.spf(9f); tp.isFakeBoldText = true
                 c.drawText("${hm(p.inicio).substring(0, 2)}h ${abrev(p.local)}", b.left + dpf(4f), b.bottom - dpf(4.5f), tp)

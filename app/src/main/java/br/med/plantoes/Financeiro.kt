@@ -29,7 +29,16 @@ data class ResumoMes(
     val pendentes: Int,        // plantões feitos sem fichas
     val esperadoReceber: Double,
     val recebido: Double,
+    /** Meta do mês: manual, ou automática (plantões fixos × R$/h da meta + salários). */
+    val meta: Double = 0.0,
+    /** Meta e ganho só dos plantões fixos já lançados (para dizer quanto ficou acima/abaixo até agora). */
+    val metaLancada: Double = 0.0,
+    val prodFixos: Double = 0.0,
+    val prodAvulsos: Double = 0.0,
+    val avulsos: Int = 0,
 ) {
+    /** Diferença dos plantões fixos lançados em relação à meta deles. */
+    val difFixos: Double get() = prodFixos - metaLancada
     val total: Double get() = prod + fixo
     val totalPrevisto: Double get() = total + previsto
     val tudoRecebido: Boolean get() = esperadoReceber > 0 && recebido >= esperadoReceber - 1
@@ -62,6 +71,10 @@ internal fun Telas.resumoMes(d: Dados, ym: YearMonth): ResumoMes {
         recebido += d.recebidos[Recebimentos.chave(ym.year, ym.monthValue, local)]?.valor ?: 0.0
     }
     for (r in fixosMes) { esperado += r.valor; recebido += d.recebidos[Recebimentos.chave(ym.year, ym.monthValue, chaveFixo(r))]?.valor ?: 0.0 }
+    val ehMeta = { p: Plantao -> !p.avulso && !(p.local.trim() in d.locaisFixos && p.valor <= 0) }
+    val metaAuto = doMes.filter(ehMeta).sumOf { it.horas * d.meta } + fixo
+    val fixLanc = comGanho.filter { !it.avulso }
+    val avLanc = comGanho.filter { it.avulso }
     return ResumoMes(
         ym, prod, fixo, previsto,
         comGanho.sumOf { it.horas },
@@ -69,6 +82,11 @@ internal fun Telas.resumoMes(d: Dados, ym: YearMonth): ResumoMes {
         doMes.size, doMes.sumOf { it.horas },
         feitos.count { !it.temGanho && it.local.trim() !in d.locaisFixos },
         esperado, recebido,
+        meta = if (d.metaMes > 0) d.metaMes else metaAuto,
+        metaLancada = fixLanc.sumOf { it.horas * d.meta },
+        prodFixos = fixLanc.sumOf { it.ganho },
+        prodAvulsos = avLanc.sumOf { it.ganho },
+        avulsos = doMes.count { it.avulso },
     )
 }
 
@@ -128,28 +146,45 @@ private fun Telas.mesFinanceiro(v: LinearLayout, d: Dados) {
         comp.addView(ui.pill("Produtividade ${brl0(r.prod)}", pal.livreTexto, pal.livreFundo), ui.lp(WRAP, WRAP, start = 6))
         c.addView(comp, ui.lp(top = 10))
     }
-    // meta mensal
-    if (d.metaMes > 0) {
+    // meta mensal (automática pelos plantões fixos, ou manual)
+    val metaM = r.meta
+    if (metaM > 0) {
         val base = r.total
-        val fr = (base / d.metaMes).toFloat().coerceIn(0f, 1f)
-        val frPrev = (r.totalPrevisto / d.metaMes).toFloat().coerceIn(0f, 1f)
+        val fr = (base / metaM).toFloat().coerceIn(0f, 1f)
+        val frPrev = (r.totalPrevisto / metaM).toFloat().coerceIn(0f, 1f)
         c.addView(ui.divisor(0), ui.lp(h = 1, top = 16, bottom = 12))
         val l = ui.lin()
-        l.addView(ui.tv("Meta do mês", 14f, pal.ink2, 500), ui.lp(0, WRAP, peso = 1f))
-        l.addView(ui.tv("${(fr * 100).toInt()}% de ${brl0(d.metaMes)}", 13f, pal.mute, 600, num = true))
+        l.addView(ui.tv(if (d.metaMes > 0) "Meta do mês" else "Meta do mês (automática)", 14f, pal.ink2, 500), ui.lp(0, WRAP, peso = 1f))
+        l.addView(ui.tv("${(fr * 100).toInt()}% de ${brl0(metaM)}", 13f, pal.mute, 600, num = true))
         c.addView(l)
         // barra com três partes: feito, previsto, falta
         val barra = ui.lin().apply { background = ui.fundo(pal.surface2, 4f) }
-        val corOk = if (r.totalPrevisto >= d.metaMes) pal.livre else pal.acc
+        val corOk = if (r.totalPrevisto >= metaM) pal.livre else pal.acc
         barra.addView(View(ui.c).apply { background = ui.fundo(corOk, 4f) }, LinearLayout.LayoutParams(0, ui.dp(8), maxOf(fr, 0.01f)))
         barra.addView(View(ui.c).apply { background = ui.fundo(ColorUtils.setAlphaComponent(corOk, 70), 4f) }, LinearLayout.LayoutParams(0, ui.dp(8), maxOf(frPrev - fr, 0f)))
         barra.addView(View(ui.c), LinearLayout.LayoutParams(0, ui.dp(8), maxOf(1f - frPrev, 0.0001f)))
         c.addView(barra, ui.lp(top = 8))
-        val falta = d.metaMes - r.totalPrevisto
+        val falta = metaM - r.totalPrevisto
         c.addView(ui.tv(
             if (r.previsto > 0) (if (falta <= 0) "Pela previsão (${brl0(r.totalPrevisto)}) você passa a meta." else "Pela previsão (${brl0(r.totalPrevisto)}) faltariam ${brl0(falta)}.")
-            else if (r.total >= d.metaMes) "Meta batida." else "Faltam ${brl0(d.metaMes - r.total)}.",
-            12f, if (falta <= 0 || r.total >= d.metaMes) pal.livreTexto else pal.mute, 500), ui.lp(top = 6))
+            else if (r.total >= metaM) "Meta batida: ${brl0(r.total - metaM)} acima." else "Ficou ${brl0(metaM - r.total)} abaixo da meta.",
+            12f, if (falta <= 0 || r.total >= metaM) pal.livreTexto else pal.mute, 500), ui.lp(top = 6))
+        // acima/abaixo da meta só nos plantões fixos já lançados, e o extra dos avulsos
+        if (r.metaLancada > 0) {
+            val dif = r.difFixos
+            val l2 = ui.lin()
+            l2.addView(ui.tv("Plantões fixos lançados", 13f, pal.ink2, 500), ui.lp(0, WRAP, peso = 1f))
+            l2.addView(ui.tv((if (dif >= 0) "+" else "−") + brl0(Math.abs(dif)) + (if (dif >= 0) " acima" else " abaixo"), 13f,
+                if (dif >= 0) pal.livreTexto else pal.alerta, 700, num = true))
+            c.addView(l2, ui.lp(top = 10))
+            c.addView(ui.tv("${brl0(r.prodFixos)} ganhos contra ${brl0(r.metaLancada)} de meta", 12f, pal.mute, 400, num = true), ui.lp(top = 2))
+        }
+        if (r.prodAvulsos > 0 || r.avulsos > 0) {
+            val l3 = ui.lin()
+            l3.addView(ui.tv("Avulsos (${r.avulsos})", 13f, pal.ink2, 500), ui.lp(0, WRAP, peso = 1f))
+            l3.addView(ui.tv("+${brl0(r.prodAvulsos)} extra", 13f, pal.avulso, 700, num = true))
+            c.addView(l3, ui.lp(top = 8))
+        }
     } else if (r.previsto > 0) {
         c.addView(ui.divisor(0), ui.lp(h = 1, top = 16, bottom = 12))
         val l = ui.lin()
@@ -337,6 +372,7 @@ private fun Telas.linhaDoTempo(v: LinearLayout, d: Dados) {
     val leg = ui.lin()
     fun item(t: String, cor: Int) = ui.lin().apply { addView(ui.ponto(cor, 9)); addView(ui.tv(t, 12f, pal.ink2, 500), ui.lp(WRAP, WRAP, start = 6, end = 14)) }
     leg.addView(item("Fixo", pal.accEscuro)); leg.addView(item("Produtividade", pal.acc)); leg.addView(item("Previsão", ColorUtils.setAlphaComponent(pal.acc, 80)))
+    leg.addView(item("— Meta", pal.ink2))
     c.addView(leg, ui.lp(top = 10))
     card.addView(c)
     v.addView(card)
@@ -371,6 +407,10 @@ private fun Telas.linhaDoTempo(v: LinearLayout, d: Dados) {
         cm.addView(barra, ui.lp(top = 10))
         val det = mutableListOf("${pl(r.plantoes, "plantão", "plantões")} · ${horas(Math.round(r.horas * 60))}")
         if (r.horasProd > 0) det += "${brl0(r.prod / r.horasProd)}/h"
+        if (r.meta > 0 && r.ym <= agora) {
+            val dif = (if (r.ym < agora) r.total - r.meta else r.difFixos)
+            det += (if (dif >= 0) "+" else "−") + brl0(Math.abs(dif)) + " vs meta"
+        }
         cm.addView(ui.tv(det.joinToString(" · "), 12f, pal.mute, 500, num = true), ui.lp(top = 8))
         val (st, corSt) = when {
             r.ym > agora -> "Previsão" to pal.mute
@@ -403,7 +443,7 @@ class MesesChart(ctx: Context, private val pal: Pal) : View(ctx) {
     override fun onDraw(c: Canvas) {
         if (dados.isEmpty()) return
         val topo = dpf(18f); val base = height - dpf(22f)
-        val maxV = dados.maxOf { it.totalPrevisto }.takeIf { it > 0 } ?: 1.0
+        val maxV = dados.maxOf { maxOf(it.totalPrevisto, it.meta) }.takeIf { it > 0 } ?: 1.0
         val n = dados.size
         val slot = width.toFloat() / maxOf(n, 6)
         val bw = minOf(slot * 0.56f, dpf(26f))
@@ -420,6 +460,11 @@ class MesesChart(ctx: Context, private val pal: Pal) : View(ctx) {
                 paint.color = cor; c.drawRect(r, paint); y -= h
             }
             seg(m.fixo, pal.accEscuro); seg(m.prod, pal.acc); seg(m.previsto, ColorUtils.setAlphaComponent(pal.acc, 80))
+            if (m.meta > 0) {
+                val ym2 = base - ((m.meta / maxV) * (base - topo)).toFloat()
+                paint.color = pal.ink2; paint.strokeWidth = dpf(2f)
+                c.drawLine(cx - bw / 2 - dpf(3f), ym2, cx + bw / 2 + dpf(3f), ym2, paint)
+            }
             if (m.ym == selecionado) {
                 paint.color = ColorUtils.setAlphaComponent(pal.acc, 26)
                 r.set(cx - slot / 2 + dpf(1f), topo - dpf(14f), cx + slot / 2 - dpf(1f), base); c.drawRoundRect(r, dpf(6f), dpf(6f), paint)

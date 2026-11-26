@@ -130,6 +130,7 @@ class AlarmReceiver : BroadcastReceiver() {
         if (i.action == Alarms.CIENTE) { nm.cancel(i.getIntExtra("nid", 0)); return }
         val id = i.getStringExtra("id") ?: return
         val kind = i.getIntExtra("kind", 2)
+        try { Series.gerar(ctx) } catch (_: Exception) { }
         val p = Store.all(ctx).find { it.id == id }
         if (kind == 4) { if (p != null && !p.lancado) avisoFichas(ctx, nm, p); return }
         if (p == null && id != "teste") return
@@ -200,7 +201,7 @@ private fun avisoFichas(ctx: Context, nm: NotificationManager, p: Plantao) {
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, i: Intent) {
         Alarms.canal(ctx)
-        Alarms.reagendar(ctx)
+        if (Series.gerar(ctx) == 0) Alarms.reagendar(ctx)
         ProximoWidget.atualizar(ctx)
     }
 }

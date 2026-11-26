@@ -41,6 +41,7 @@ interface Acoes {
     fun bloqueio(ligar: Boolean)
     fun backup()
     fun restaurar()
+    fun editarSerie(s: Serie)
 }
 
 /** Tudo o que as telas precisam saber para se desenhar. */
@@ -58,6 +59,7 @@ data class Dados(
     val fixos: List<RendaFixa> = emptyList(),
     val metaMes: Double = 0.0,
     val bloqueio: Boolean = false,
+    val series: List<Serie> = emptyList(),
 ) {
     /** Locais pagos por salário fixo: os plantões lá não pedem fichas. */
     val locaisFixos: Set<String> by lazy { fixos.map { it.local.trim() }.filter { it.isNotEmpty() }.toSet() }
@@ -88,6 +90,10 @@ class Telas(internal val ui: Ui, internal val a: Acoes) {
 
     /** Atualiza só os números que mudam com o tempo (contagem, barra), sem redesenhar a tela. */
     fun tick() = tickers.forEach { it() }
+
+    /** Meta do plantão: R$/h da meta × horas. Só para plantões fixos que não são pagos por salário. */
+    internal fun metaDe(p: Plantao): Double? =
+        if (p.avulso || !p.ativo || p.local.trim() in locaisFixos) null else meta * p.horas
 
     internal fun cor(p: Plantao, conf: Set<String>) = if (p.id in conf) pal.choque else corDo(p.local)
 
@@ -326,10 +332,14 @@ class Telas(internal val ui: Ui, internal val a: Acoes) {
         info.addView(ui.tv(p.local, 16f, if (p.ativo) pal.ink else pal.mute, 600).apply {
             if (!p.ativo) paintFlags = paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
         })
-        val linhaMeta = listOfNotNull(p.setor.takeIf { it.isNotBlank() }, horas(p.durMin.toLong()))
+        val metaP = metaDe(p)
+        val linhaMeta = listOfNotNull(p.setor.takeIf { it.isNotBlank() }, horas(p.durMin.toLong()),
+            if (metaP != null && !p.lancado && p.valor <= 0) "meta ${brl0(metaP)}" else null)
         info.addView(ui.tv(linhaMeta.joinToString(" · "), 13f, pal.mute, 400), ui.lp(top = 4))
         if (p.obs.isNotBlank()) info.addView(ui.tv(p.obs, 13f, pal.ink2, 400), ui.lp(top = 4))
         if (choque) info.addView(ui.pill("Choque de horário", pal.choque), ui.lp(WRAP, WRAP, top = 8))
+        if (p.avulso) info.addView(ui.pill("Avulso", pal.avulso), ui.lp(WRAP, WRAP, top = 8))
+        else if (p.serieId.isNotEmpty() && p.inicio > now) info.addView(ui.tv("↻ Escala fixa", 12f, pal.mute, 500), ui.lp(top = 6))
         if (p.situacao == Plantao.REPASSADO)
             info.addView(ui.pill("Repassado" + if (p.colega.isNotBlank()) " para ${p.colega}" else "", pal.mute, pal.surface2), ui.lp(WRAP, WRAP, top = 8))
         if (p.situacao == Plantao.COBERTURA)
@@ -345,7 +355,20 @@ class Telas(internal val ui: Ui, internal val a: Acoes) {
             partes += brl0(p.ganho)
             partes += "${brl0(p.porHora)}/h"
             val corG = if (p.porHora >= meta) pal.livreTexto else pal.alerta
-            if (p.inicio <= now) info.addView(ui.pill(partes.joinToString(" · "), corG), ui.lp(WRAP, WRAP, top = 8))
+            if (p.inicio <= now) {
+                info.addView(ui.pill(partes.joinToString(" · "), corG), ui.lp(WRAP, WRAP, top = 8))
+                if (metaP != null) {
+                    val dif = p.ganho - metaP
+                    val txt = when {
+                        Math.abs(dif) < 1 -> "Na meta de ${brl0(metaP)}"
+                        dif > 0 -> "+${brl0(dif)} acima da meta de ${brl0(metaP)}"
+                        else -> "−${brl0(-dif)} abaixo da meta de ${brl0(metaP)}"
+                    }
+                    info.addView(ui.tv(txt, 13f, if (dif >= -1) pal.livreTexto else pal.alerta, 600, num = true), ui.lp(top = 6))
+                } else if (p.avulso) {
+                    info.addView(ui.tv("+${brl0(p.ganho)} extra (avulso)", 13f, pal.avulso, 600, num = true), ui.lp(top = 6))
+                }
+            }
         } else if (p.inicio <= now) {
             info.addView(botaoTexto("Lançar fichas") { a.lancar(p) }.apply {
                 setPadding(0, 0, 0, 0); minHeight = ui.dp(32); minimumHeight = ui.dp(32)
@@ -462,6 +485,7 @@ class Telas(internal val ui: Ui, internal val a: Acoes) {
         }
         ps.map { it.local }.distinct().sorted().forEach { g.addView(item(it, corDo(it))) }
         if (ps.any { it.id in conf }) g.addView(item("Choque de horário", pal.choque))
+        if (ps.any { it.avulso }) g.addView(item("Avulso (contorno tracejado)", pal.avulso))
         g.addView(item("Livre", pal.livre))
         return g
     }
@@ -594,10 +618,27 @@ class Telas(internal val ui: Ui, internal val a: Acoes) {
         temas.addView(tr)
         v.addView(temas)
 
+        v.addView(ui.secao("Escala fixa", if (d.series.isEmpty()) null else "${d.series.size} automática" + if (d.series.size > 1) "s" else ""))
+        val ls = d.series.sortedWith(compareBy({ java.time.LocalDate.parse(it.inicio).dayOfWeek.value % 7 }, { it.hora })).map { sr ->
+            val r = ui.lin()
+            r.setPadding(ui.dp(16), ui.dp(14), ui.dp(12), ui.dp(14))
+            r.addView(ui.ponto(corDo(sr.local), 10))
+            val t = ui.col()
+            t.addView(ui.tv(sr.local + if (sr.setor.isNotBlank()) " · ${sr.setor}" else "", 15f, pal.ink, 600))
+            t.addView(ui.tv(sr.descricao() + if (sr.ate.isNotEmpty()) " · até ${diaCurto(java.time.LocalDate.parse(sr.ate))}" else "", 12f, pal.mute), ui.lp(top = 2))
+            r.addView(t, ui.lp(0, WRAP, start = 12, peso = 1f))
+            r.addView(ui.tv("›", 22f, pal.mute))
+            r.setBackgroundResource(android.util.TypedValue().also { ui.c.theme.resolveAttribute(android.R.attr.selectableItemBackground, it, true) }.resourceId)
+            r.setOnClickListener { a.editarSerie(sr) }
+            r as View
+        }.toMutableList()
+        if (ls.isEmpty()) ls += ui.linha("Nenhuma escala automática", "Ao cadastrar um plantão fixo, escolha Repetir para ele se renovar sozinho")
+        v.addView(ui.grupo(*ls.toTypedArray()))
+
         v.addView(ui.secao("Financeiro"))
         val metas = mutableListOf(
             ui.linha("Meta por hora", "${brl0(d.meta)} por hora de produtividade") { a.editarMeta() },
-            ui.linha("Meta do mês", if (d.metaMes > 0) "${brl0(d.metaMes)} por mês (fixo + produtividade)" else "Toque para definir") { a.editarMetaMes() },
+            ui.linha("Meta do mês", if (d.metaMes > 0) "${brl0(d.metaMes)} por mês (valor manual)" else "Automática: plantões fixos × ${brl0(d.meta)}/h + salários") { a.editarMetaMes() },
         )
         for (fx in d.fixos) metas += ui.linha(fx.nome, "Salário fixo ${brl0(fx.valor)}/mês desde ${fx.desde.substring(5)}/${fx.desde.substring(0, 4)}" +
             (if (fx.ate.isNotEmpty()) " até ${fx.ate.substring(5)}/${fx.ate.substring(0, 4)}" else "") +

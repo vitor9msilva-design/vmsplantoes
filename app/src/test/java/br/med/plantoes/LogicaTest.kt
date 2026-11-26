@@ -95,3 +95,28 @@ class FixoTest {
         assertTrue(RendaFixa(nome = "C", valor = 1.0, desde = "2026-03").ativaEm(java.time.YearMonth.of(2030, 5)))
     }
 }
+
+class SerieTest {
+    private val s = Serie(id = "x", local = "Hospital A", hora = "07:00", durMin = 360, inicio = "2026-12-03", intervalo = 14)
+
+    @Test fun quinzenalSemFim() {
+        val ds = s.ocorrencias(LocalDate.parse("2026-12-01"), LocalDate.parse("2027-02-01")).map { it.toString() }
+        assertEquals(listOf("2026-12-03", "2026-12-17", "2026-12-31", "2027-01-14", "2027-01-28"), ds)
+        // continua no futuro distante, sempre no mesmo dia da semana
+        val longe = s.ocorrencias(LocalDate.parse("2030-01-01"), LocalDate.parse("2030-01-31"))
+        assertTrue(longe.isNotEmpty() && longe.all { it.dayOfWeek == LocalDate.parse("2026-12-03").dayOfWeek })
+    }
+
+    @Test fun comecaNoMeioEPulaExcecoes() {
+        val ds = s.copy(excecoes = setOf("2026-12-31")).ocorrencias(LocalDate.parse("2026-12-18"), LocalDate.parse("2027-01-20"))
+        assertEquals(listOf(LocalDate.parse("2027-01-14")), ds)
+        val fim = s.copy(ate = "2026-12-20").ocorrencias(LocalDate.parse("2026-12-01"), LocalDate.parse("2027-03-01"))
+        assertEquals(2, fim.size)
+    }
+
+    @Test fun plantaoGeradoTemIdEstavel() {
+        val p = Series.plantao(s, LocalDate.parse("2026-12-17"))
+        assertEquals("s:x:2026-12-17", p.id); assertEquals(Plantao.FIXO, p.tipo); assertEquals(LocalDate.parse("2026-12-17"), Series.dataDe(p))
+        assertTrue(s.descricao().contains("a cada 15 dias"))
+    }
+}

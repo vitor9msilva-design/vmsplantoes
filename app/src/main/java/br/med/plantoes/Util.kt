@@ -91,7 +91,7 @@ object Cores {
 object Paleta {
     val CORES = intArrayOf(
         0xFF2563EB.toInt(), 0xFF7C3AED.toInt(), 0xFFEA580C.toInt(), 0xFF0891B2.toInt(),
-        0xFFDB2777.toInt(), 0xFF65A30D.toInt(), 0xFF4F46E5.toInt(), 0xFFB45309.toInt(),
+        0xFFCA8A04.toInt(), 0xFF65A30D.toInt(), 0xFF4F46E5.toInt(), 0xFFB45309.toInt(),
     )
     val mapa = linkedMapOf<String, Int>()
 
@@ -157,4 +157,5 @@ class Pal(val tema: Tema) {
     val choqueBorda = 0xFFFCA5A5.toInt()
     val descanso = 0x12000000
     val alerta = 0xFFB45309.toInt()
+    val avulso = 0xFFC026D3.toInt()
 }

@@ -34,13 +34,14 @@ class TelasShot {
                 1, 4 -> out += p("Santa Clara Sul", "Noturno", d, 19, 12)
                 5 -> out += p("Hospital Regional", "", d, 7, 12)
                 2 -> out += p("Hospital Central", "Tarde e noite", d, 13, 18)
-                3 -> out += p("Santa Maria", "", d, 8, 12)
+                3 -> out += p("Santa Maria", "", d, 8, 12).copy(serieId = "sm")
                 6 -> { out += p("Hospital Central", "Manhã", d, 7, 6); out += p("Hospital Central", "Noite", d, 19, 12) }
                 7 -> out += p("Santa Maria", "", d, 7, 12)
             }
             d = d.plusDays(1)
         }
-        out += p("Clínica Norte", "Cinderela", hoje.plusDays(3), 19, 6) // sábado: choca com Hospital Central noite
+        out += p("Clínica Norte", "Cinderela", hoje.plusDays(3), 19, 6).copy(tipo = Plantao.AVULSO) // sábado: choca com Hospital Central noite
+        out += p("Clínica Norte", "", hoje.minusDays(6), 7, 12).copy(tipo = Plantao.AVULSO, fichas = 30, porFicha = 60.0)
         out += p("Clínica Norte", "", hoje.plusDays(5), 7, 12).copy(situacao = Plantao.COBERTURA, colega = "Dra. Ana")
         out += p("Santa Maria", "", hoje.plusDays(1), 7, 12).copy(situacao = Plantao.REPASSADO, colega = "Dr. Paulo")
         // fichas lançadas nos plantões já encerrados (valores fictícios)
@@ -80,6 +81,7 @@ class TelasShot {
         override fun bloqueio(ligar: Boolean) {}
         override fun backup() {}
         override fun restaurar() {}
+        override fun editarSerie(s: Serie) {}
     }
 
     private fun dados(faltas: List<String> = emptyList(), dias: Long = 60, antes: Long = 400) =
@@ -88,7 +90,8 @@ class TelasShot {
             mapOf(Recebimentos.chave(2026, 11, "Hospital Central") to Recebido(3600.0, hoje.minusDays(1).ms()),
                 Recebimentos.chave(2026, 11, "Santa Clara Sul") to Recebido(3300.0, hoje.minusDays(1).ms()),
                 Recebimentos.chave(2026, 11, "fixo:hr") to Recebido(9000.0, hoje.minusDays(3).ms())),
-            listOf(RendaFixa("hr", "Contrato Hospital Regional", 9000.0, "2026-06", "", "Hospital Regional")), 26000.0)
+            listOf(RendaFixa("hr", "Contrato Hospital Regional", 9000.0, "2026-06", "", "Hospital Regional")), 0.0,
+            series = listOf(Serie("sm", "Santa Maria", "", "08:00", 720, "2026-05-20", 7), Serie("cn", "Clínica Norte", "Manhã", "07:00", 360, "2026-12-03", 14)))
 
     @Before fun cores() {
         Paleta.mapa.clear()

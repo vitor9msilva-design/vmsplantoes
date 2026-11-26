@@ -356,6 +356,7 @@ class MainActivity : AppCompatActivity(), Acoes {
     override fun onResume() {
         super.onResume()
         verificarBloqueio()
+        Series.gerar(this)
         render(false)
         handler.removeCallbacks(tick)
         handler.postDelayed(tick, 30_000)
@@ -377,6 +378,7 @@ class MainActivity : AppCompatActivity(), Acoes {
         fixos = Fixos.todos(this),
         metaMes = Fixos.metaMes(this),
         bloqueio = Store.prefs(this).getBoolean("bloqueio", false),
+        series = Series.todas(this),
     )
 
     /** Redesenha a aba atual. Com `animar`, o conteúdo entra deslizando de leve (troca de aba). */
@@ -565,14 +567,31 @@ class MainActivity : AppCompatActivity(), Acoes {
         }
         v.addView(campo("Observações (opcional)", obs))
 
-        val reps = listOf(
-            "Não repetir" to (1 to 0), "Toda semana · 4 vezes" to (4 to 7), "Toda semana · 8 vezes" to (8 to 7),
-            "Toda semana · 12 vezes" to (12 to 7), "A cada 15 dias · 4 vezes" to (4 to 14), "A cada 15 dias · 6 vezes" to (6 to 14)
-        )
+        // fixo (da escala) ou avulso (extra)
+        val tipos = listOf(Plantao.FIXO to "Fixo · da minha escala", Plantao.AVULSO to "Avulso · plantão extra")
+        val tipo = MaterialAutoCompleteTextView(this).apply {
+            inputType = InputType.TYPE_NULL; setSimpleItems(tipos.map { it.second }.toTypedArray())
+            setText(if (p?.avulso == true) tipos[1].second else tipos[0].second, false)
+        }
+        v.addView(campo("Tipo", tipo, true))
+
+        // repetição automática, sem fim: o app vai criando os próximos sozinho
+        val serieAtual = p?.serieId?.takeIf { it.isNotEmpty() }?.let { Series.de(this, it) }
+        val reps = listOf("Não repete" to 0, "Toda semana" to 7, "A cada 15 dias" to 14, "A cada 3 semanas" to 21, "A cada 4 semanas" to 28)
         val rep = MaterialAutoCompleteTextView(this).apply {
             inputType = InputType.TYPE_NULL; setSimpleItems(reps.map { it.first }.toTypedArray()); setText(reps[0].first, false)
         }
-        if (p == null) v.addView(campo("Repetir", rep, true))
+        val campoRep = campo("Repetir (fica automático até você mudar)", rep, true)
+        val infoSerie = ui.tv(serieAtual?.let { "↻ Faz parte da escala fixa: ${it.descricao()}" } ?: "", 13f, pal.acc, 500)
+        fun ajustaTipo() {
+            val fixo = tipo.text.toString() == tipos[0].second
+            campoRep.visibility = if (fixo && serieAtual == null) View.VISIBLE else View.GONE
+            infoSerie.visibility = if (serieAtual != null) View.VISIBLE else View.GONE
+        }
+        tipo.setOnItemClickListener { _, _, _, _ -> ajustaTipo() }
+        v.addView(campoRep)
+        v.addView(infoSerie, ui.lp(top = 10))
+        ajustaTipo()
 
         // troca de plantão: repassei para um colega / estou cobrindo um colega
         val sits = listOf("" to "Meu plantão", Plantao.COBERTURA to "Estou cobrindo um colega", Plantao.REPASSADO to "Passei para um colega")
@@ -604,17 +623,57 @@ class MainActivity : AppCompatActivity(), Acoes {
             val longasAntes = Jornadas.longas(itens).size
             val situacao = sits.firstOrNull { it.second == sit.text.toString() }?.first ?: ""
             val nomeColega = if (situacao.isEmpty()) "" else colega.text.toString().trim()
-            if (p != null) {
-                Store.atualizar(this, p.copy(local = nome, setor = setor.text.toString().trim(), inicio = ini.ms(), durMin = horasDur * 60, valor = vv,
-                    obs = obs.text.toString().trim(), situacao = situacao, colega = nomeColega))
+            val tipoSel = if (tipo.text.toString() == tipos[1].second) Plantao.AVULSO else Plantao.FIXO
+            val intervalo = if (tipoSel == Plantao.FIXO) reps.firstOrNull { it.first == rep.text.toString() }?.second ?: 0 else 0
+            val setorTxt = setor.text.toString().trim(); val obsTxt = obs.text.toString().trim()
+            fun serieNova(id: String = java.util.UUID.randomUUID().toString(), intervaloS: Int) = Serie(
+                id = id, local = nome, setor = setorTxt, hora = "%02d:%02d".format(ini.hour, ini.minute), durMin = horasDur * 60,
+                inicio = ini.toLocalDate().toString(), intervalo = intervaloS, valor = vv, obs = obsTxt)
+            sheet.dismiss()
+            if (p == null) {
+                if (intervalo > 0) {
+                    val n = Series.criar(this, serieNova(intervaloS = intervalo))
+                    Snackbar.make(box, "Escala automática criada: $n plantões já na agenda, e o app continua criando os próximos.", Snackbar.LENGTH_LONG).setAnchorView(fab).show()
+                } else Store.adicionar(this, listOf(Plantao(local = nome, setor = setorTxt, inicio = ini.ms(), durMin = horasDur * 60, valor = vv,
+                    obs = obsTxt, situacao = situacao, colega = nomeColega, tipo = tipoSel)))
+                depoisDeSalvar(antes, longasAntes)
             } else {
-                val (n, passo) = reps.firstOrNull { it.first == rep.text.toString() }?.second ?: (1 to 0)
-                Store.adicionar(this, (0 until n).map { i ->
-                    Plantao(local = nome, setor = setor.text.toString().trim(), inicio = ini.plusDays((i * passo).toLong()).ms(),
-                        durMin = horasDur * 60, valor = vv, obs = obs.text.toString().trim(), situacao = situacao, colega = nomeColega)
-                })
+                val novoP = p.copy(local = nome, setor = setorTxt, inicio = ini.ms(), durMin = horasDur * 60, valor = vv,
+                    obs = obsTxt, situacao = situacao, colega = nomeColega, tipo = tipoSel)
+                if (serieAtual != null && tipoSel == Plantao.FIXO) {
+                    // pertence a uma escala: mudar só este ou este e os próximos
+                    MaterialAlertDialogBuilder(this).setTitle("Alterar a escala?")
+                        .setMessage("Este plantão faz parte da escala fixa (${serieAtual.descricao()}).")
+                        .setPositiveButton("Só este") { _, _ -> Store.atualizar(this, novoP); render(false); depoisDeSalvar(antes, longasAntes) }
+                        .setNeutralButton("Este e os próximos") { _, _ ->
+                            Series.encerrar(this, serieAtual.id, Series.dataDe(p))
+                            Series.criar(this, serieNova(intervaloS = serieAtual.intervalo).copy(ate = serieAtual.ate))
+                            render(false); depoisDeSalvar(antes, longasAntes)
+                            Snackbar.make(box, "Escala atualizada a partir de ${diaCurto(ini.toLocalDate())}.", Snackbar.LENGTH_LONG).setAnchorView(fab).show()
+                        }
+                        .setNegativeButton("Cancelar", null).show()
+                    return@setOnClickListener
+                }
+                if (serieAtual != null) { Series.excecao(this, serieAtual.id, Series.dataDe(p).toString()); Store.atualizar(this, novoP.copy(serieId = "")) }
+                else Store.atualizar(this, novoP)
+                if (intervalo > 0 && serieAtual == null) {
+                    val n = Series.criar(this, serieNova(intervaloS = intervalo))
+                    Snackbar.make(box, "Virou escala automática: $n plantões novos criados.", Snackbar.LENGTH_LONG).setAnchorView(fab).show()
+                }
+                depoisDeSalvar(antes, longasAntes)
             }
-            sheet.dismiss(); render(false)
+            render(false)
+        }
+
+        val sv = NestedScrollView(this); sv.addView(v)
+        sheet.setContentView(sv)
+        sheet.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        sheet.behavior.skipCollapsed = true
+        sheet.show()
+    }
+
+    /** Avisos depois de salvar: choque de horário ou jornada longa criada por este plantão. */
+    private fun depoisDeSalvar(antes: Int, longasAntes: Int) {
             val novasLongas = Jornadas.longas(itens)
             if (Store.conflitos(itens).size > antes)
                 Snackbar.make(box, "Atenção: este plantão bate com outro já agendado.", Snackbar.LENGTH_LONG).setAnchorView(fab).show()
@@ -625,13 +684,6 @@ class MainActivity : AppCompatActivity(), Acoes {
                         "(${diaCurto(j.ini)} ${hm(j.ini)} até ${diaCurto(j.fim)} ${hm(j.fim)}).\n\nO plantão foi salvo. Se puder, reserve descanso depois.")
                     .setPositiveButton("Entendi", null).show()
             }
-        }
-
-        val sv = NestedScrollView(this); sv.addView(v)
-        sheet.setContentView(sv)
-        sheet.behavior.state = BottomSheetBehavior.STATE_EXPANDED
-        sheet.behavior.skipCollapsed = true
-        sheet.show()
     }
 
 
@@ -797,11 +849,64 @@ class MainActivity : AppCompatActivity(), Acoes {
     /** Lixeira: apaga sempre UM plantão só. Para apagar vários, use "Excluir vários plantões" em Ajustes. */
     override fun excluir(p: Plantao) {
         val l = p.inicio.ldt()
-        MaterialAlertDialogBuilder(this).setTitle("Excluir este plantão?")
-            .setMessage("${p.local}\n${diaLongo(l.toLocalDate())}, ${hm(p.inicio)} às ${hm(p.fim)}\n\nSó este plantão será apagado. Os outros continuam na agenda.")
-            .setPositiveButton("Excluir") { _, _ -> apagar(listOf(p)) }
+        val serie = p.serieId.takeIf { it.isNotEmpty() }?.let { Series.de(this, it) }
+        val b = MaterialAlertDialogBuilder(this).setTitle("Excluir este plantão?")
+            .setMessage("${p.local}\n${diaLongo(l.toLocalDate())}, ${hm(p.inicio)} às ${hm(p.fim)}\n\n" +
+                if (serie == null) "Só este plantão será apagado. Os outros continuam na agenda."
+                else "Ele faz parte da escala fixa (${serie.descricao()}). \"Só este\" apaga apenas este dia; a escala continua.")
+            .setPositiveButton(if (serie == null) "Excluir" else "Só este") { _, _ -> apagar(listOf(p)) }
             .setNegativeButton("Cancelar", null)
-            .show()
+        if (serie != null) b.setNeutralButton("Encerrar escala aqui") { _, _ ->
+            MaterialAlertDialogBuilder(this).setTitle("Encerrar a escala?")
+                .setMessage("Os plantões desta escala a partir de ${diaCurto(Series.dataDe(p))} serão apagados (os que já têm fichas lançadas ficam).")
+                .setPositiveButton("Encerrar") { _, _ ->
+                    Series.encerrar(this, serie.id, Series.dataDe(p)); render(false)
+                    Snackbar.make(box, "Escala encerrada a partir de ${diaCurto(Series.dataDe(p))}.", Snackbar.LENGTH_LONG).show()
+                }.setNegativeButton("Cancelar", null).show()
+        }
+        b.show()
+    }
+
+    override fun editarSerie(s: Serie) {
+        val v = ui.col(20, 4)
+        v.addView(ui.tv("${s.descricao()}\nAs mudanças valem a partir do próximo plantão; os anteriores ficam como estão.", 14f, pal.mute), ui.lp(top = 4))
+        val hora = TextInputEditText(this).apply { setText(s.hora); inputType = InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_TIME }
+        v.addView(campo("Início (HH:MM)", hora))
+        val durs = (DURS + s.durMin / 60).distinct().sorted()
+        val dur = MaterialAutoCompleteTextView(this).apply { inputType = InputType.TYPE_NULL; setSimpleItems(durs.map { "$it horas" }.toTypedArray()); setText("${s.durMin / 60} horas", false) }
+        v.addView(campo("Duração", dur, true))
+        val reps = listOf("Toda semana" to 7, "A cada 15 dias" to 14, "A cada 3 semanas" to 21, "A cada 4 semanas" to 28)
+        val rep = MaterialAutoCompleteTextView(this).apply {
+            inputType = InputType.TYPE_NULL; setSimpleItems(reps.map { it.first }.toTypedArray())
+            setText(reps.firstOrNull { it.second == s.intervalo }?.first ?: reps[0].first, false)
+        }
+        v.addView(campo("Repetição", rep, true))
+        val setor = TextInputEditText(this).apply { setText(s.setor); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES }
+        v.addView(campo("Setor ou turno", setor))
+        val sv = NestedScrollView(this); sv.addView(v)
+        val hoje = LocalDate.now()
+        val prox = s.ocorrencias(hoje, hoje.plusDays(400)).firstOrNull()
+        MaterialAlertDialogBuilder(this).setTitle(s.local).setView(sv)
+            .setPositiveButton("Salvar") { _, _ ->
+                val hh = Regex("^(\\d{1,2}):(\\d{2})$").find(hora.text.toString().trim())
+                if (hh == null || prox == null) { Toast.makeText(this, "Horário inválido (use HH:MM).", Toast.LENGTH_LONG).show(); return@setPositiveButton }
+                val nova = s.copy(id = java.util.UUID.randomUUID().toString(), hora = "%02d:%s".format(hh.groupValues[1].toInt(), hh.groupValues[2]),
+                    durMin = (dur.text.toString().substringBefore(" ").toIntOrNull() ?: s.durMin / 60) * 60,
+                    intervalo = reps.firstOrNull { it.first == rep.text.toString() }?.second ?: s.intervalo,
+                    setor = setor.text.toString().trim(), inicio = prox.toString(), excecoes = emptySet())
+                if (nova.copy(id = s.id, inicio = s.inicio, excecoes = s.excecoes) != s) {
+                    Series.encerrar(this, s.id, prox); Series.criar(this, nova)
+                    Snackbar.make(box, "Escala atualizada a partir de ${diaCurto(prox)}.", Snackbar.LENGTH_LONG).show()
+                }
+                render(false)
+            }
+            .setNeutralButton("Encerrar escala") { _, _ ->
+                MaterialAlertDialogBuilder(this).setTitle("Encerrar a escala?")
+                    .setMessage("Os próximos plantões desta escala serão apagados (os que já têm fichas lançadas ficam).")
+                    .setPositiveButton("Encerrar") { _, _ -> Series.encerrar(this, s.id, hoje); render(false) }
+                    .setNegativeButton("Cancelar", null).show()
+            }
+            .setNegativeButton("Cancelar", null).show()
     }
 
     /** Lista os plantões futuros com caixas de marcar: apaga exatamente os que o usuário marcar. */
@@ -831,6 +936,7 @@ class MainActivity : AppCompatActivity(), Acoes {
     }
 
     private fun apagar(ps: List<Plantao>) {
+        for (p in ps) if (p.serieId.isNotEmpty()) Series.excecao(this, p.serieId, Series.dataDe(p).toString())
         Store.remover(this, ps.map { it.id }.toSet())
         render(false)
         val msg = if (ps.size == 1) "Plantão de ${diaCurto(ps[0].inicio)} excluído" else "${ps.size} plantões excluídos"
