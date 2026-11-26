@@ -1,5 +1,5 @@
 {
-  "versionCode": 12,
-  "versionName": "2.1",
-  "novidades": "• Widget da tela inicial corrigido: agora mostra o próximo plantão, quanto falta e a hora de sair.\n• O widget aparece com prévia na lista de widgets e pode ser redimensionado.\n• Ele se atualiza ao abrir o app e quando um alarme toca."
+  "versionCode": 13,
+  "versionName": "2.2",
+  "novidades": "• Widget novo, maior e usando o espaço todo: nome do local em destaque, horário, quanto falta, hora de sair de casa e o plantão seguinte.\n• Dica: depois de atualizar, segure o widget e arraste a borda para deixá-lo com 2 linhas de altura."
 }

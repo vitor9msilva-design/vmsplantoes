@@ -14,8 +14,8 @@ android {
         applicationId = "br.med.plantoes"
         minSdk = 26
         targetSdk = 34
-        versionCode = 12
-        versionName = "2.1"
+        versionCode = 13
+        versionName = "2.2"
     }
 
     // A chave de assinatura NÃO fica no repositório (ele é público).
