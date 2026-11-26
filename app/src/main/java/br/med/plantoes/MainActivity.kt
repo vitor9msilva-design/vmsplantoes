@@ -324,6 +324,8 @@ class MainActivity : AppCompatActivity(), Acoes {
         nav.setOnItemReselectedListener { scroll.smoothScrollTo(0, 0) }
 
         Alarms.canal(this)
+        // apaga notificações antigas que ainda estejam na barra (as versões anteriores podiam repetir a vibração)
+        getSystemService(NotificationManager::class.java).cancelAll()
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
@@ -469,14 +471,6 @@ class MainActivity : AppCompatActivity(), Acoes {
                 abrir(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:$packageName")))
             }
         }
-        val bat = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
-        itensP += "${if (bat) "✓" else "•"}  Sem restrição de bateria (recomendado)" to {
-            abrir(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
-        }
-        itensP += "     Som do canal de alarmes" to {
-            abrir(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
-                .putExtra(Settings.EXTRA_APP_PACKAGE, packageName).putExtra(Settings.EXTRA_CHANNEL_ID, Alarms.CANAL))
-        }
         MaterialAlertDialogBuilder(this)
             .setTitle("Toque para ajustar")
             .setItems(itensP.map { it.first }.toTypedArray()) { _, i -> itensP[i].second() }
@@ -487,8 +481,8 @@ class MainActivity : AppCompatActivity(), Acoes {
         MaterialAlertDialogBuilder(this).setTitle("Como funcionam os alarmes").setMessage(
             "Cada plantão gera dois alarmes: 24 horas antes e 2 horas antes do início.\n\n" +
                 "Eles usam o mesmo sistema do despertador do Android: tocam no horário exato mesmo com o celular bloqueado ou o app fechado, e voltam a ser agendados sozinhos se o celular reiniciar.\n\n" +
-                "Quando o alarme dispara, a tela acende sobre o bloqueio, pisca em vermelho, a lanterna pisca, o som toca e o celular vibra até você tocar em CIENTE (ou Soneca 10 min). Depois de 5 minutos sem resposta o som para.\n\n" +
-                "Em celulares com economia de bateria agressiva, deixe o app sem restrição de bateria em Permissões."
+                "Quando o alarme dispara, a tela acende sobre o bloqueio, pisca em vermelho, a lanterna pisca, o som toca no volume de alarme que você escolheu no celular e ele vibra por até 1 minuto, ou até você tocar em CIENTE (ou Soneca 10 min).\n\n" +
+                "O app não altera volume nem outras configurações do celular. O aviso de fim de plantão é silencioso."
         ).setPositiveButton("Entendi", null).show()
     }
 

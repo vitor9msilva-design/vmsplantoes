@@ -32,7 +32,6 @@ class AlarmActivity : AppCompatActivity() {
     private var cam: CameraManager? = null
     private var piscando = true
     private var fase = false
-    private var volAnterior = -1
     private lateinit var root: LinearLayout
 
     override fun onCreate(b: Bundle?) {
@@ -90,17 +89,12 @@ class AlarmActivity : AppCompatActivity() {
         setContentView(root)
 
         iniciar()
-        h.postDelayed({ pararSom() }, 5 * 60_000L)
+        // toca no máximo 1 minuto; depois a tela fica parada esperando o "Ciente"
+        h.postDelayed({ pararSom() }, 60_000L)
     }
 
     private fun iniciar() {
-        val am = getSystemService(AudioManager::class.java)
-        if (Store.prefs(this).getBoolean("volMax", true)) {
-            try {
-                volAnterior = am.getStreamVolume(AudioManager.STREAM_ALARM)
-                am.setStreamVolume(AudioManager.STREAM_ALARM, am.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0)
-            } catch (_: Exception) { volAnterior = -1 }
-        }
+        // usa o volume de alarme que você já escolheu no celular: o app não altera configurações
         player = try {
             MediaPlayer().apply {
                 setAudioAttributes(
@@ -138,10 +132,6 @@ class AlarmActivity : AppCompatActivity() {
         player = null
         vib?.cancel()
         torchId?.let { try { cam?.setTorchMode(it, false) } catch (_: Exception) { } }
-        if (volAnterior >= 0) {
-            try { getSystemService(AudioManager::class.java).setStreamVolume(AudioManager.STREAM_ALARM, volAnterior, 0) } catch (_: Exception) { }
-            volAnterior = -1
-        }
         if (::root.isInitialized) root.setBackgroundColor(0xFF7A0E12.toInt())
     }
 

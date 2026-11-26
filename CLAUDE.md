@@ -16,3 +16,5 @@ O usuário é médico, não programador: fale em português simples.
   a partir de `TelasShot.kt` (dados de exemplo com hospitais fictícios). Olhe as imagens antes de publicar mudanças visuais.
 - Financeiro (`Financeiro.kt`): resumo por mês (`resumoMes`), linha do tempo com `MesesChart`, análises automáticas.
   Rendas fixas (`Fixos`/`RendaFixa`), recebimentos, metas e backup ficam nas preferências do celular, nunca no código.
+- O app NÃO altera configurações do celular: não mexe no volume, não fura o "Não perturbe", não pede isenção de bateria.
+  Notificações vibram uma vez (sem FLAG_INSISTENT); a tela de alarme toca no máximo 1 minuto. Pedido explícito do usuário.

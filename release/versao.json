@@ -1,5 +1,5 @@
 {
-  "versionCode": 13,
-  "versionName": "2.2",
-  "novidades": "• Widget novo, maior e usando o espaço todo: nome do local em destaque, horário, quanto falta, hora de sair de casa e o plantão seguinte.\n• Dica: depois de atualizar, segure o widget e arraste a borda para deixá-lo com 2 linhas de altura."
+  "versionCode": 14,
+  "versionName": "2.3",
+  "novidades": "• Corrige a vibração repetida: os avisos agora vibram uma vez só (antes podiam repetir até a notificação ser apagada).\n• A tela de alarme toca no máximo 1 minuto.\n• O app não mexe mais no volume do celular, não fura o Não perturbe e não pede isenção de bateria.\n• O aviso de fim de plantão (lançar fichas) agora é silencioso."
 }

@@ -22,7 +22,8 @@ import androidx.core.app.NotificationCompat
  * mesmo com o celular bloqueado, em economia de energia ou no modo soneca do Android.
  */
 object Alarms {
-    const val CANAL = "alarme_plantao_v1"
+    /** Canais novos (v2): os antigos tinham vibração longa e "furar o Não perturbe"; são apagados em canal(). */
+    const val CANAL = "alarme_plantao_v2"
     const val ACAO = "br.med.plantoes.ALARME"
     const val CIENTE = "br.med.plantoes.CIENTE"
     private const val MAX_ALARMES = 400
@@ -31,13 +32,15 @@ object Alarms {
         ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
         ?: Settings.System.DEFAULT_NOTIFICATION_URI
 
-    const val CANAL_FICHAS = "fim_plantao_v1"
+    const val CANAL_FICHAS = "fim_plantao_v2"
 
     fun canal(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
+        for (velho in listOf("alarme_plantao_v1", "fim_plantao_v1")) if (nm.getNotificationChannel(velho) != null) nm.deleteNotificationChannel(velho)
         if (nm.getNotificationChannel(CANAL_FICHAS) == null)
-            nm.createNotificationChannel(NotificationChannel(CANAL_FICHAS, "Fim de plantão", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Lembrete para lançar as fichas atendidas"
+            nm.createNotificationChannel(NotificationChannel(CANAL_FICHAS, "Fim de plantão", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Lembrete silencioso para lançar as fichas atendidas"
+                setSound(null, null); enableVibration(false)
             })
         if (nm.getNotificationChannel(CANAL) != null) return
         val ch = NotificationChannel(CANAL, "Alarmes de plantão", NotificationManager.IMPORTANCE_HIGH).apply {
@@ -49,11 +52,10 @@ object Alarms {
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
             )
             enableVibration(true)
-            vibrationPattern = longArrayOf(0, 800, 400, 800, 400, 800)
+            vibrationPattern = longArrayOf(0, 500, 300, 500)
             enableLights(true)
             lightColor = Color.RED
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-            setBypassDnd(true)
         }
         nm.createNotificationChannel(ch)
     }
@@ -167,14 +169,15 @@ class AlarmReceiver : BroadcastReceiver() {
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setSound(Alarms.somUri(), AudioManager.STREAM_ALARM)
-            .setVibrate(longArrayOf(0, 800, 400, 800, 400, 800))
+            .setVibrate(longArrayOf(0, 500, 300, 500))
+            .setOnlyAlertOnce(true)
+            .setTimeoutAfter(30 * MIN)
             .setLights(Color.RED, 500, 500)
             .setFullScreenIntent(pTela, true)
             .setContentIntent(pTela)
             .addAction(0, "Ciente", pCiente)
             .setAutoCancel(true)
             .build()
-        n.flags = n.flags or Notification.FLAG_INSISTENT
         try { nm.notify(nid, n) } catch (_: SecurityException) { }
     }
 }

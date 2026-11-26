@@ -732,11 +732,9 @@ class Telas(internal val ui: Ui, internal val a: Acoes) {
 
         v.addView(ui.secao("Alarmes"))
         val ok = d.faltas.isEmpty()
-        val chave = MaterialSwitch(ui.c).apply { isChecked = d.volMax; setOnCheckedChangeListener { _, x -> a.volumeMaximo(x) } }
         v.addView(ui.grupo(
             ui.linha("Permissões", if (ok) "Tudo certo para tocar com a tela bloqueada" else "Falta: ${d.faltas.joinToString(", ")}",
                 if (ok) pal.livreTexto else pal.choque) { a.permissoes() },
-            ui.linha("Volume máximo no alarme", "Sobe o volume do alarme enquanto toca", direita = chave),
             ui.linha("Testar alarme", "Toca em 5 segundos. Bloqueie a tela para ver") { a.testarAlarme() },
             ui.linha("Como funcionam os alarmes", "1 dia antes e 2 horas antes de cada plantão") { a.ajuda() },
         ))
