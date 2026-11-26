@@ -84,3 +84,14 @@ class JornadaTest {
         assertEquals(1440L, Livre.livreNoDia(listOf(p("2027-01-07", 8, 12, Plantao.REPASSADO)), LocalDate.parse("2027-01-07"), 0))
     }
 }
+
+class FixoTest {
+    @Test fun mesesAtivos() {
+        val r = RendaFixa(nome = "Contrato", valor = 5000.0, desde = "2026-03", ate = "2026-12")
+        assertTrue(!r.ativaEm(java.time.YearMonth.of(2026, 2)))
+        assertTrue(r.ativaEm(java.time.YearMonth.of(2026, 3)))
+        assertTrue(r.ativaEm(java.time.YearMonth.of(2026, 12)))
+        assertTrue(!r.ativaEm(java.time.YearMonth.of(2027, 1)))
+        assertTrue(RendaFixa(nome = "C", valor = 1.0, desde = "2026-03").ativaEm(java.time.YearMonth.of(2030, 5)))
+    }
+}

@@ -99,6 +99,14 @@ class MainActivity : AppCompatActivity(), Acoes {
         val meus = ps.filter { it.ativo && it.temGanho }
         sb.append("\n;;;;Total;;${n(meus.sumOf { it.horas })};;${meus.sumOf { it.fichas ?: 0 }};${meus.sumOf { it.uti ?: 0 }};;;;${n(meus.sumOf { it.ganho })};")
         sb.append(if (meus.sumOf { it.horas } > 0) n(meus.sumOf { it.ganho } / meus.sumOf { it.horas }) else "").append("\n")
+        val fixos = Fixos.todos(this)
+        val mesesFx = if (mes != null) listOf(java.time.YearMonth.of(ano, mes)) else (1..12).map { java.time.YearMonth.of(ano, it) }
+        val linhasFx = mesesFx.flatMap { ym -> fixos.filter { it.ativaEm(ym) }.map { ym to it } }
+        if (linhasFx.isNotEmpty()) {
+            sb.append("\nSalário fixo;Nome;Valor líquido\n")
+            for ((ym, f) in linhasFx) sb.append("%02d/%04d;${q(f.nome)};${n(f.valor)}\n".format(ym.monthValue, ym.year))
+            sb.append(";Total do período;${n(meus.sumOf { it.ganho } + linhasFx.sumOf { it.second.valor })}\n")
+        }
         val rec = Recebimentos.todos(this)
         val chaves = rec.keys.filter { it.startsWith("%04d-".format(ano)) && (mes == null || it.startsWith("%04d-%02d".format(ano, mes))) }.sorted()
         if (chaves.isNotEmpty()) {
@@ -106,6 +114,155 @@ class MainActivity : AppCompatActivity(), Acoes {
             for (k in chaves) { val r = rec[k]!!; sb.append("${k.substringBefore("|")};${q(k.substringAfter("|"))};${n(r.valor)};${diaCurto(r.quando)}\n") }
         }
         return sb.toString()
+    }
+
+    // ---------- backup ----------
+    private val salvarBackup = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@registerForActivityResult
+        try {
+            contentResolver.openOutputStream(uri)!!.use { it.write(Backup.gerar(this).toByteArray()) }
+            Store.prefs(this).edit().putLong("ultimoBackup", System.currentTimeMillis()).apply()
+            Snackbar.make(box, "Backup salvo. Guarde o arquivo no Drive ou envie para você mesmo.", Snackbar.LENGTH_LONG).show()
+        } catch (_: Exception) { Toast.makeText(this, "Não foi possível salvar o backup.", Toast.LENGTH_LONG).show() }
+    }
+
+    private val lerBackup = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        val txt = try { contentResolver.openInputStream(uri)!!.bufferedReader().readText() } catch (_: Exception) { "" }
+        MaterialAlertDialogBuilder(this).setTitle("Restaurar backup?")
+            .setMessage("Os plantões e configurações deste celular serão substituídos pelos do arquivo.")
+            .setPositiveButton("Restaurar") { _, _ ->
+                try {
+                    val n = Backup.restaurar(this, txt)
+                    Toast.makeText(this, "Backup restaurado: $n plantões.", Toast.LENGTH_LONG).show()
+                    recreate()
+                } catch (_: Exception) {
+                    MaterialAlertDialogBuilder(this).setTitle("Arquivo não reconhecido")
+                        .setMessage("Escolha um arquivo criado em Ajustes › Fazer backup.").setPositiveButton("OK", null).show()
+                }
+            }.setNegativeButton("Cancelar", null).show()
+    }
+
+    override fun backup() = salvarBackup.launch("plantoes-backup-${LocalDate.now()}.json")
+    override fun restaurar() = lerBackup.launch(arrayOf("*/*"))
+
+    // ---------- bloqueio com digital / senha do celular ----------
+    private val AUTENTICADORES = androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK or
+        androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
+    private var desbloqueadoEm = 0L
+    private var capa: View? = null
+    private var pedindo = false
+
+    override fun bloqueio(ligar: Boolean) {
+        if (ligar && androidx.biometric.BiometricManager.from(this).canAuthenticate(AUTENTICADORES) != androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS) {
+            MaterialAlertDialogBuilder(this).setTitle("Bloqueio indisponível")
+                .setMessage("Cadastre uma digital ou um bloqueio de tela (PIN, padrão ou senha) nas configurações do celular e tente de novo.")
+                .setPositiveButton("OK", null).show()
+            render(false); return
+        }
+        Store.prefs(this).edit().putBoolean("bloqueio", ligar).apply()
+        desbloqueadoEm = System.currentTimeMillis()
+    }
+
+    private fun verificarBloqueio() {
+        if (!Store.prefs(this).getBoolean("bloqueio", false)) { capa?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }; capa = null; return }
+        if (System.currentTimeMillis() - desbloqueadoEm < 60_000 || pedindo) return
+        if (capa == null) {
+            val c = ui.col(32, 32)
+            c.gravity = Gravity.CENTER
+            c.setBackgroundColor(pal.bg)
+            c.isClickable = true
+            c.addView(ui.tv("Plantões", 30f, pal.ink, 700).apply { gravity = Gravity.CENTER })
+            c.addView(ui.tv("Protegido com a digital ou a senha do celular", 14f, pal.mute).apply { gravity = Gravity.CENTER }, ui.lp(top = 8))
+            c.addView(MaterialButton(this).apply { text = "Desbloquear"; isAllCaps = false; setOnClickListener { pedirDigital() } }, ui.lp(WRAP, WRAP, top = 24))
+            (findViewById<android.view.ViewGroup>(android.R.id.content)).addView(c, android.widget.FrameLayout.LayoutParams(MATCH, MATCH))
+            capa = c
+        }
+        pedirDigital()
+    }
+
+    private fun pedirDigital() {
+        if (pedindo) return
+        pedindo = true
+        val prompt = androidx.biometric.BiometricPrompt(this, androidx.core.content.ContextCompat.getMainExecutor(this),
+            object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationError(codigo: Int, msg: CharSequence) { pedindo = false }
+                override fun onAuthenticationSucceeded(r: androidx.biometric.BiometricPrompt.AuthenticationResult) {
+                    pedindo = false
+                    desbloqueadoEm = System.currentTimeMillis()
+                    capa?.animate()?.alpha(0f)?.setDuration(180)?.withEndAction {
+                        capa?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }; capa = null
+                    }?.start()
+                }
+            })
+        val info = androidx.biometric.BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Desbloquear Plantões").setSubtitle("Use a digital ou a senha do celular")
+            .setAllowedAuthenticators(AUTENTICADORES).build()
+        try { prompt.authenticate(info) } catch (_: Exception) { pedindo = false }
+    }
+
+    // ---------- renda fixa e meta mensal ----------
+    override fun editarMetaMes() {
+        val v = ui.col(20, 4)
+        val m = numero("R$ por mês", if (Fixos.metaMes(this) > 0) fmtNum(Fixos.metaMes(this)) else "", true)
+        v.addView(ui.tv("Quanto você quer fechar no mês, somando salário fixo e produtividade. Deixe vazio para não usar.", 14f, pal.mute), ui.lp(top = 4))
+        v.addView(campo("Meta do mês (R$)", m))
+        MaterialAlertDialogBuilder(this).setTitle("Meta do mês").setView(v)
+            .setPositiveButton("Salvar") { _, _ -> Fixos.salvarMetaMes(this, txt2num(m.text)); render(false) }
+            .setNegativeButton("Cancelar", null).show()
+    }
+
+    private fun mesTexto(k: String) = if (k.length >= 7) "${k.substring(5, 7)}/${k.substring(0, 4)}" else ""
+    private fun lerMes(t: String): String? {
+        val m = Regex("^\\s*(\\d{1,2})\\s*/\\s*(\\d{4})\\s*$").find(t) ?: return null
+        val mm = m.groupValues[1].toInt(); if (mm !in 1..12) return null
+        return "%s-%02d".format(m.groupValues[2], mm)
+    }
+
+    override fun editarFixo(r: RendaFixa?) {
+        val v = ui.col(20, 4)
+        v.addView(ui.tv("Valor líquido que cai por mês. Os plantões do local vinculado não pedem fichas: já estão pagos pelo salário.", 14f, pal.mute), ui.lp(top = 4))
+        val nome = TextInputEditText(this).apply { setText(r?.nome ?: ""); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS }
+        v.addView(campo("Nome (ex.: contrato do hospital)", nome))
+        val valor = numero("R$", r?.let { fmtNum(it.valor) } ?: "", true)
+        v.addView(campo("Valor líquido por mês (R$)", valor))
+        val hoje = java.time.YearMonth.now()
+        val desde = TextInputEditText(this).apply { setText(r?.let { mesTexto(it.desde) } ?: "%02d/%04d".format(hoje.monthValue, hoje.year)); inputType = InputType.TYPE_CLASS_DATETIME }
+        val ate = TextInputEditText(this).apply { setText(r?.let { mesTexto(it.ate) } ?: ""); inputType = InputType.TYPE_CLASS_DATETIME }
+        val rl = ui.lin(Gravity.TOP)
+        rl.addView(campo("Desde (mês/ano)", desde).apply { layoutParams = ui.lp(0, WRAP, top = 12, peso = 1f) })
+        rl.addView(campo("Até (opcional)", ate).apply { layoutParams = ui.lp(0, WRAP, top = 12, start = 10, peso = 1f) })
+        v.addView(rl)
+        val nenhum = "Nenhum"
+        val locais = listOf(nenhum) + itens.map { it.local.trim() }.distinct().sorted()
+        val local = MaterialAutoCompleteTextView(this).apply {
+            inputType = InputType.TYPE_NULL; setSimpleItems(locais.toTypedArray())
+            setText(r?.local?.takeIf { it.isNotBlank() } ?: nenhum, false)
+        }
+        v.addView(campo("Plantões deste local fazem parte do salário", local, true))
+        val sv = NestedScrollView(this); sv.addView(v)
+        val dlg = MaterialAlertDialogBuilder(this).setTitle(if (r == null) "Salário ou renda fixa" else r.nome).setView(sv)
+            .setPositiveButton("Salvar", null).setNegativeButton("Cancelar", null)
+            .apply { if (r != null) setNeutralButton("Remover") { _, _ -> Fixos.remover(this@MainActivity, r.id); render(false) } }
+            .create()
+        dlg.setOnShowListener {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val n = nome.text.toString().trim(); val vv = txt2num(valor.text)
+                val d0 = lerMes(desde.text.toString()); val a0 = if (ate.text.isNullOrBlank()) "" else lerMes(ate.text.toString())
+                when {
+                    n.isEmpty() -> (nome.parent.parent as? TextInputLayout)?.error = "Dê um nome"
+                    vv <= 0 -> (valor.parent.parent as? TextInputLayout)?.error = "Informe o valor"
+                    d0 == null -> (desde.parent.parent as? TextInputLayout)?.error = "Use mês/ano, ex.: 01/2026"
+                    a0 == null -> (ate.parent.parent as? TextInputLayout)?.error = "Use mês/ano"
+                    else -> {
+                        val loc = local.text.toString().let { if (it == nenhum) "" else it }
+                        Fixos.salvar(this, RendaFixa(r?.id ?: java.util.UUID.randomUUID().toString(), n, vv, d0, a0, loc))
+                        dlg.dismiss(); render(false)
+                    }
+                }
+            }
+        }
+        dlg.show()
     }
 
     override fun exportar(ano: Int, mes: Int?) {
@@ -198,6 +355,7 @@ class MainActivity : AppCompatActivity(), Acoes {
 
     override fun onResume() {
         super.onResume()
+        verificarBloqueio()
         render(false)
         handler.removeCallbacks(tick)
         handler.postDelayed(tick, 30_000)
@@ -216,6 +374,9 @@ class MainActivity : AppCompatActivity(), Acoes {
         regras = Regras.todas(this),
         meta = Regras.meta(this),
         recebidos = Recebimentos.todos(this),
+        fixos = Fixos.todos(this),
+        metaMes = Fixos.metaMes(this),
+        bloqueio = Store.prefs(this).getBoolean("bloqueio", false),
     )
 
     /** Redesenha a aba atual. Com `animar`, o conteúdo entra deslizando de leve (troca de aba). */
@@ -225,7 +386,7 @@ class MainActivity : AppCompatActivity(), Acoes {
             0 -> telas.inicio(d)
             1 -> telas.agenda(d)
             2 -> telas.calendario(d)
-            3 -> telas.ganhos(d)
+            3 -> telas.financeiro(d)
             else -> telas.ajustes(d, Temas.atual(this).id)
         }
         box.removeAllViews()

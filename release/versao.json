@@ -1,5 +1,5 @@
 {
-  "versionCode": 7,
-  "versionName": "1.6",
-  "novidades": "• Fechamento do mês: marque quando cada hospital pagou e veja se o valor confere.\n• Previsão de quanto você fecha o mês.\n• Troca de plantão: marque \"Passei para um colega\" ou \"Estou cobrindo um colega\".\n• Planilha do mês ou do ano para Excel e contador.\n• Aviso de jornada longa (mais de 24 h seguidas) e carga da semana.\n• Por hospital: tempo de trajeto (\"Saia até\") e o que não pode esquecer.\n• Widget na tela inicial com o próximo plantão."
+  "versionCode": 8,
+  "versionName": "1.7",
+  "novidades": "• Nova aba Financeiro, com Mês e Linha do tempo (gráfico dos últimos 12 meses e o resumo do ano).\n• Salário ou renda fixa mensal (ex.: contrato CLT), somado ao total do mês. Os plantões do local vinculado não pedem fichas.\n• Meta do mês em reais, com previsão de quanto você vai fechar.\n• Análises automáticas: qual hospital rende mais por hora e como seu R$/h mudou.\n• Backup e restauração de tudo num arquivo.\n• Bloqueio com digital ou senha do celular."
 }

@@ -295,3 +295,94 @@ object Jornadas {
     /** Jornadas acima do limite (padrão 24 h seguidas). */
     fun longas(list: List<Plantao>, limiteH: Double = 24.0) = calcular(list).filter { it.horas > limiteH }
 }
+
+/** Renda fixa mensal (ex.: contrato CLT/estatutário). Valor líquido por mês. */
+data class RendaFixa(
+    val id: String = UUID.randomUUID().toString(),
+    val nome: String,
+    val valor: Double,
+    /** Primeiro mês, "AAAA-MM". */
+    val desde: String,
+    /** Último mês, "AAAA-MM"; vazio = continua. */
+    val ate: String = "",
+    /** Local cujos plantões já estão pagos por este salário (não pedem fichas). Vazio = nenhum. */
+    val local: String = "",
+) {
+    fun ativaEm(ym: java.time.YearMonth): Boolean {
+        val k = "%04d-%02d".format(ym.year, ym.monthValue)
+        return desde <= k && (ate.isEmpty() || k <= ate)
+    }
+
+    fun toJson(): JSONObject = JSONObject().put("id", id).put("nome", nome).put("valor", valor)
+        .put("desde", desde).put("ate", ate).put("local", local)
+
+    companion object {
+        fun fromJson(o: JSONObject) = RendaFixa(
+            o.optString("id", UUID.randomUUID().toString()), o.getString("nome"), o.getDouble("valor"),
+            o.getString("desde"), o.optString("ate", ""), o.optString("local", ""),
+        )
+    }
+}
+
+object Fixos {
+    fun todos(ctx: Context): List<RendaFixa> {
+        val arr = try { JSONArray(Store.prefs(ctx).getString("fixos", "[]")!!) } catch (_: Exception) { JSONArray() }
+        return (0 until arr.length()).mapNotNull { i -> try { RendaFixa.fromJson(arr.getJSONObject(i)) } catch (_: Exception) { null } }
+    }
+
+    private fun gravar(ctx: Context, l: List<RendaFixa>) {
+        val arr = JSONArray(); l.forEach { arr.put(it.toJson()) }
+        Store.prefs(ctx).edit().putString("fixos", arr.toString()).apply()
+    }
+
+    fun salvar(ctx: Context, r: RendaFixa) {
+        val l = todos(ctx).toMutableList()
+        val i = l.indexOfFirst { it.id == r.id }
+        if (i >= 0) l[i] = r else l.add(r)
+        gravar(ctx, l)
+        Alarms.reagendar(ctx)
+    }
+
+    fun remover(ctx: Context, id: String) { gravar(ctx, todos(ctx).filter { it.id != id }); Alarms.reagendar(ctx) }
+
+    /** Locais cujos plantões são pagos por salário fixo. */
+    fun locais(ctx: Context): Set<String> = todos(ctx).map { it.local.trim() }.filter { it.isNotEmpty() }.toSet()
+
+    fun metaMes(ctx: Context): Double = Store.prefs(ctx).getFloat("metaMes", 0f).toDouble()
+    fun salvarMetaMes(ctx: Context, v: Double) = Store.prefs(ctx).edit().putFloat("metaMes", v.toFloat()).apply()
+}
+
+/** Cópia de segurança completa: plantões e todas as configurações. */
+object Backup {
+    private val CHAVES = listOf("regras", "recebidos", "fixos", "cores", "tema", "metaHora", "metaMes", "descansoH", "minLivreH", "volMax")
+
+    fun gerar(ctx: Context): String {
+        val p = Store.prefs(ctx)
+        val prefs = JSONObject()
+        for (k in CHAVES) when (val v = p.all[k]) { null -> {}; else -> prefs.put(k, JSONObject().put("t", v.javaClass.simpleName).put("v", v.toString())) }
+        val arr = JSONArray(); Store.all(ctx).forEach { arr.put(it.toJson()) }
+        return JSONObject().put("formato", "plantoes-backup-v1").put("criado", System.currentTimeMillis())
+            .put("plantoes", arr).put("prefs", prefs).toString(1)
+    }
+
+    /** Retorna quantos plantões vieram. Lança exceção se o arquivo não for um backup. */
+    fun restaurar(ctx: Context, txt: String): Int {
+        val o = JSONObject(txt)
+        require(o.optString("formato") == "plantoes-backup-v1") { "formato" }
+        val arr = o.getJSONArray("plantoes")
+        val ps = (0 until arr.length()).map { Plantao.fromJson(arr.getJSONObject(it)) }
+        val pr = o.optJSONObject("prefs") ?: JSONObject()
+        val e = Store.prefs(ctx).edit()
+        for (k in pr.keys()) {
+            val x = pr.getJSONObject(k); val v = x.getString("v")
+            when (x.getString("t")) {
+                "Integer" -> e.putInt(k, v.toInt()); "Long" -> e.putLong(k, v.toLong()); "Float" -> e.putFloat(k, v.toFloat())
+                "Boolean" -> e.putBoolean(k, v.toBoolean()); else -> e.putString(k, v)
+            }
+        }
+        e.apply()
+        Paleta.carregar(ctx)
+        Store.substituir(ctx, ps)
+        return ps.size
+    }
+}

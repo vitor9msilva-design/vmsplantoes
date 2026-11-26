@@ -14,8 +14,8 @@ android {
         applicationId = "br.med.plantoes"
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.6"
+        versionCode = 8
+        versionName = "1.7"
     }
 
     // A chave de assinatura NÃO fica no repositório (ele é público).
@@ -56,5 +56,6 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
+    implementation("androidx.biometric:biometric:1.1.0")
     testImplementation("junit:junit:4.13.2")
 }

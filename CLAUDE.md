@@ -14,3 +14,5 @@ O usuário é médico, não programador: fale em português simples.
   `Tema.kt` tem os temas claros. Sempre tema claro.
 - Para ver as telas sem celular: `./gradlew recordPaparazziDebug` gera PNGs em `app/src/test/snapshots/images/` (fora do git),
   a partir de `TelasShot.kt` (dados de exemplo com hospitais fictícios). Olhe as imagens antes de publicar mudanças visuais.
+- Financeiro (`Financeiro.kt`): resumo por mês (`resumoMes`), linha do tempo com `MesesChart`, análises automáticas.
+  Rendas fixas (`Fixos`/`RendaFixa`), recebimentos, metas e backup ficam nas preferências do celular, nunca no código.

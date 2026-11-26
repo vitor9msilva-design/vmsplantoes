@@ -102,7 +102,8 @@ object Alarms {
             }
         }
         // aviso de fim de plantão para lançar as fichas (não precisa ser exato ao minuto)
-        for (p in Store.all(ctx).filter { it.fim > now && !it.lancado && it.ativo && it.valor <= 0 }.sortedBy { it.fim }.take(60)) {
+        val doSalario = Fixos.locais(ctx)
+        for (p in Store.all(ctx).filter { it.fim > now && !it.lancado && it.ativo && it.valor <= 0 && it.local.trim() !in doSalario }.sortedBy { it.fim }.take(60)) {
             val code = base(p.id) + 4
             val pi = PendingIntent.getBroadcast(
                 ctx, code, intent(ctx, p.id, 4), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

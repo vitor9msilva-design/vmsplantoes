@@ -28,10 +28,11 @@ class TelasShot {
 
     private val lista: List<Plantao> by lazy {
         val out = mutableListOf<Plantao>()
-        var d = hoje.minusDays(30)
+        var d = hoje.minusDays(200)
         while (d.isBefore(hoje.plusDays(40))) {
             when (d.dayOfWeek.value) {
                 1, 4 -> out += p("Santa Clara Sul", "Noturno", d, 19, 12)
+                5 -> out += p("Hospital Regional", "", d, 7, 12)
                 2 -> out += p("Hospital Central", "Tarde e noite", d, 13, 18)
                 3 -> out += p("Santa Maria", "", d, 8, 12)
                 6 -> { out += p("Hospital Central", "Manhã", d, 7, 6); out += p("Hospital Central", "Noite", d, 19, 12) }
@@ -48,6 +49,7 @@ class TelasShot {
             else when (x.local) {
                 "Santa Clara Sul" -> x.copy(fichas = 20 + i % 9, uti = i % 3, porFicha = 50.0, porUti = 150.0)
                 "Santa Maria" -> x.copy(fichas = 18 + i % 7, porFicha = 50.0)
+                "Hospital Regional" -> x
                 else -> x.copy(valor = 1200.0)
             }
         }
@@ -73,17 +75,24 @@ class TelasShot {
         override fun editarMeta() {}
         override fun marcarRecebido(chave: String, local: String, mesTxt: String, esperado: Double) {}
         override fun exportar(ano: Int, mes: Int?) {}
+        override fun editarFixo(r: RendaFixa?) {}
+        override fun editarMetaMes() {}
+        override fun bloqueio(ligar: Boolean) {}
+        override fun backup() {}
+        override fun restaurar() {}
     }
 
     private fun dados(faltas: List<String> = emptyList(), dias: Long = 60, antes: Long = 400) =
         Dados(lista.filter { it.inicio < hoje.plusDays(dias).ms() && it.inicio > hoje.minusDays(antes).ms() }, agora, 0, 6, faltas, true, "1.5",
             mapOf("Santa Clara Sul" to Regra(50.0, 150.0, 40, "carimbo e jaleco"), "Santa Maria" to Regra(50.0, 0.0, 25)), 100.0,
             mapOf(Recebimentos.chave(2026, 11, "Hospital Central") to Recebido(3600.0, hoje.minusDays(1).ms()),
-                Recebimentos.chave(2026, 11, "Santa Clara Sul") to Recebido(3300.0, hoje.minusDays(1).ms())))
+                Recebimentos.chave(2026, 11, "Santa Clara Sul") to Recebido(3300.0, hoje.minusDays(1).ms()),
+                Recebimentos.chave(2026, 11, "fixo:hr") to Recebido(9000.0, hoje.minusDays(3).ms())),
+            listOf(RendaFixa("hr", "Contrato Hospital Regional", 9000.0, "2026-06", "", "Hospital Regional")), 26000.0)
 
     @Before fun cores() {
         Paleta.mapa.clear()
-        listOf("Clínica Norte", "Hospital Central", "Santa Clara Sul", "Santa Maria").forEachIndexed { i, l -> Paleta.mapa[l] = i }
+        listOf("Clínica Norte", "Hospital Central", "Santa Clara Sul", "Santa Maria", "Hospital Regional").forEachIndexed { i, l -> Paleta.mapa[l] = i }
     }
 
     private fun tela(tema: String = "azul", f: (Telas) -> View): View {
@@ -104,8 +113,9 @@ class TelasShot {
     @Test fun semana() = paparazzi.snapshot(tela { it.calendario(dados()) })
     @Test fun mes() = paparazzi.snapshot(tela { t -> t.calMes = true; t.calendario(dados()) })
     @Test fun livres() = paparazzi.snapshot(tela { t -> t.calModo = 2; t.calendario(dados(dias = 4)) })
-    @Test fun ganhos() = paparazzi.snapshot(tela { t -> t.mesGanhos = YearMonth.of(2026, 11); t.ganhos(dados(antes = 9)) })
-    @Test fun ganhosPrevisao() = paparazzi.snapshot(tela { t -> t.mesGanhos = YearMonth.of(2026, 12); t.ganhos(dados(dias = 8, antes = 40)) })
+    @Test fun financeiroMes() = paparazzi.snapshot(tela { t -> t.mesGanhos = YearMonth.of(2026, 11); t.financeiro(dados(antes = 40).let { dd -> dd.copy(lista = dd.lista.filter { it.inicio >= LocalDate.of(2026, 11, 22).ms() || it.inicio < LocalDate.of(2026, 11, 1).ms() }) }) })
+    @Test fun financeiroPrevisao() = paparazzi.snapshot(tela { t -> t.mesGanhos = YearMonth.of(2026, 12); t.financeiro(dados(dias = 8, antes = 40)) })
+    @Test fun linhaDoTempo() = paparazzi.snapshot(tela { t -> t.finModo = 1; t.mesGanhos = YearMonth.of(2026, 12); t.financeiro(dados()) })
     @Test fun ajustesVerde() = paparazzi.snapshot(tela("verde") { it.ajustes(dados(), "verde") })
     @Test fun inicioPendente() = paparazzi.snapshot(tela { t ->
         val d = dados(antes = 3)
