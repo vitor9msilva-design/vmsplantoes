@@ -144,3 +144,13 @@ class PadraoTest {
         assertTrue(Series.padroes(l, LocalDate.parse("2027-01-01")).isEmpty())
     }
 }
+
+class RegraTest {
+    @Test fun formasDePagamento() {
+        assertEquals(1200.0, Regra(pagamento = Regra.PLANTAO, valorPlantao = 1200.0).valorPara(720), 0.001)
+        assertEquals(660.0, Regra(pagamento = Regra.HORA, valorHora = 110.0).valorPara(360), 0.001)
+        assertEquals(0.0, Regra(porFicha = 50.0).valorPara(720), 0.001)
+        assertTrue(Regra(pagamento = Regra.SALARIO).configurada)
+        assertTrue(!Regra().configurada)
+    }
+}

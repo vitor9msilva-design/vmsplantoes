@@ -89,7 +89,9 @@ class TelasShot {
 
     private fun dados(faltas: List<String> = emptyList(), dias: Long = 60, antes: Long = 400) =
         Dados(lista.filter { it.inicio < hoje.plusDays(dias).ms() && it.inicio > hoje.minusDays(antes).ms() }, agora, 0, 6, faltas, true, "1.5",
-            mapOf("Santa Clara Sul" to Regra(50.0, 150.0, 40, "carimbo e jaleco"), "Santa Maria" to Regra(50.0, 0.0, 25)), 100.0,
+            mapOf("Santa Clara Sul" to Regra(50.0, 150.0, 40, "carimbo e jaleco"), "Santa Maria" to Regra(50.0, 0.0, 25),
+                "Hospital Central" to Regra(pagamento = Regra.PLANTAO, valorPlantao = 1200.0, deslocMin = 30),
+                "Clínica Sul" to Regra(pagamento = Regra.HORA, valorHora = 110.0)), 100.0,
             mapOf(Recebimentos.chave(2026, 11, "Hospital Central") to Recebido(3600.0, hoje.minusDays(1).ms()),
                 Recebimentos.chave(2026, 11, "Santa Clara Sul") to Recebido(3300.0, hoje.minusDays(1).ms()),
                 Recebimentos.chave(2026, 11, "fixo:hr") to Recebido(9000.0, hoje.minusDays(3).ms())),

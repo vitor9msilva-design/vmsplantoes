@@ -1,5 +1,5 @@
 {
-  "versionCode": 10,
-  "versionName": "1.9",
-  "novidades": "• Toque numa data do calendário: abre o painel do dia com os plantões para editar, apagar ou criar.\n• Automatizar minha escala: o app encontra os plantões que se repetem e transforma tudo em escala fixa de uma vez.\n• Botão ↻ Repetir sempre em cada plantão.\n• O salário fixo vem junto com a escala da página (Receber plantões da página)."
+  "versionCode": 11,
+  "versionName": "2.0",
+  "novidades": "• Locais de trabalho: em Ajustes, cadastre hospitais, clínicas e contratos (como o HRT), mesmo antes de ter plantão lá.\n• Cada local define como paga: por produtividade (fichas e UTI), valor fixo por plantão, valor por hora ou salário mensal.\n• Plantões de valor fixo ou por hora já nascem com o valor e não pedem fichas.\n• Renomear um local troca o nome em todos os plantões.\n• No cadastro de plantão, o campo Local sugere seus locais e mostra como cada um paga."
 }

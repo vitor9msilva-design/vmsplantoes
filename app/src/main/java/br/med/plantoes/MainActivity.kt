@@ -522,13 +522,28 @@ class MainActivity : AppCompatActivity(), Acoes {
             }, ui.lp(top = 4, bottom = 4))
         }
 
-        val locais = itens.map { it.local }.distinct().sorted().toTypedArray()
+        val locais = Regras.locais(this).toTypedArray()
         val local = MaterialAutoCompleteTextView(this).apply {
             setText(p?.local ?: ""); threshold = 1
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
             setSimpleItems(locais)
         }
-        v.addView(campo("Local / hospital", local))
+        v.addView(campo("Local de trabalho", local))
+        val infoLocal = ui.tv("", 12f, pal.mute)
+        v.addView(infoLocal, ui.lp(top = 4))
+        fun mostraLocal() {
+            val n = local.text.toString().trim()
+            val rg = Regras.todas(this)[n]
+            infoLocal.text = when {
+                n.isEmpty() -> "Escolha um local cadastrado ou digite um novo"
+                n in Fixos.locais(this) -> "Salário mensal: este plantão não pede fichas"
+                rg != null -> rg.resumo()
+                else -> "Local novo: depois de salvar, você poderá informar como ele paga"
+            }
+        }
+        local.setOnItemClickListener { _, _, _, _ -> mostraLocal() }
+        local.setOnFocusChangeListener { _, tem -> if (!tem) mostraLocal() }
+        mostraLocal()
         val setor = TextInputEditText(this).apply { setText(p?.setor ?: ""); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES }
         v.addView(campo("Setor ou turno (opcional)", setor))
 
@@ -626,7 +641,10 @@ class MainActivity : AppCompatActivity(), Acoes {
             val nome = local.text.toString().trim()
             if (nome.isEmpty()) { (local.parent.parent as? TextInputLayout)?.error = "Informe o local"; return@setOnClickListener }
             val horasDur = dur.text.toString().substringBefore(" ").toIntOrNull() ?: 12
-            val vv = valor.text.toString().replace(",", ".").toDoubleOrNull() ?: 0.0
+            val rgLocal = Regras.todas(this)[nome]
+            val vv = valor.text.toString().replace(",", ".").toDoubleOrNull()?.takeIf { it > 0 }
+                ?: if (p == null || p.valor <= 0) rgLocal?.valorPara(horasDur * 60) ?: 0.0 else 0.0
+            val localNovo = rgLocal == null && nome !in Fixos.locais(this) && Regras.locais(this).none { it.equals(nome, true) }
             val antes = Store.conflitos(itens).size
             val longasAntes = Jornadas.longas(itens).size
             val situacao = sits.firstOrNull { it.second == sit.text.toString() }?.first ?: ""
@@ -644,7 +662,7 @@ class MainActivity : AppCompatActivity(), Acoes {
                     Snackbar.make(box, "Escala automática criada: $n plantões já na agenda, e o app continua criando os próximos.", Snackbar.LENGTH_LONG).setAnchorView(fab).show()
                 } else Store.adicionar(this, listOf(Plantao(local = nome, setor = setorTxt, inicio = ini.ms(), durMin = horasDur * 60, valor = vv,
                     obs = obsTxt, situacao = situacao, colega = nomeColega, tipo = tipoSel)))
-                depoisDeSalvar(antes, longasAntes)
+                depoisDeSalvar(antes, longasAntes, if (localNovo) nome else null)
             } else {
                 val novoP = p.copy(local = nome, setor = setorTxt, inicio = ini.ms(), durMin = horasDur * 60, valor = vv,
                     obs = obsTxt, situacao = situacao, colega = nomeColega, tipo = tipoSel)
@@ -652,11 +670,11 @@ class MainActivity : AppCompatActivity(), Acoes {
                     // pertence a uma escala: mudar só este ou este e os próximos
                     MaterialAlertDialogBuilder(this).setTitle("Alterar a escala?")
                         .setMessage("Este plantão faz parte da escala fixa (${serieAtual.descricao()}).")
-                        .setPositiveButton("Só este") { _, _ -> Store.atualizar(this, novoP); render(false); depoisDeSalvar(antes, longasAntes) }
+                        .setPositiveButton("Só este") { _, _ -> Store.atualizar(this, novoP); render(false); depoisDeSalvar(antes, longasAntes, if (localNovo) nome else null) }
                         .setNeutralButton("Este e os próximos") { _, _ ->
                             Series.encerrar(this, serieAtual.id, Series.dataDe(p))
                             Series.criar(this, serieNova(intervaloS = serieAtual.intervalo).copy(ate = serieAtual.ate))
-                            render(false); depoisDeSalvar(antes, longasAntes)
+                            render(false); depoisDeSalvar(antes, longasAntes, if (localNovo) nome else null)
                             Snackbar.make(box, "Escala atualizada a partir de ${diaCurto(ini.toLocalDate())}.", Snackbar.LENGTH_LONG).setAnchorView(fab).show()
                         }
                         .setNegativeButton("Cancelar", null).show()
@@ -668,7 +686,7 @@ class MainActivity : AppCompatActivity(), Acoes {
                     val n = Series.criar(this, serieNova(intervaloS = intervalo))
                     Snackbar.make(box, "Virou escala automática: $n plantões novos criados.", Snackbar.LENGTH_LONG).setAnchorView(fab).show()
                 }
-                depoisDeSalvar(antes, longasAntes)
+                depoisDeSalvar(antes, longasAntes, if (localNovo) nome else null)
             }
             render(false)
         }
@@ -681,7 +699,12 @@ class MainActivity : AppCompatActivity(), Acoes {
     }
 
     /** Avisos depois de salvar: choque de horário ou jornada longa criada por este plantão. */
-    private fun depoisDeSalvar(antes: Int, longasAntes: Int) {
+    private fun depoisDeSalvar(antes: Int, longasAntes: Int, localNovo: String? = null) {
+            if (localNovo != null) {
+                Snackbar.make(box, "Novo local: $localNovo. Informe como ele paga.", 8000)
+                    .setAction("Configurar") { editarRegra(localNovo) }.apply { if (fab.isShown) setAnchorView(fab) }.show()
+                return
+            }
             val novasLongas = Jornadas.longas(itens)
             if (Store.conflitos(itens).size > antes)
                 Snackbar.make(box, "Atenção: este plantão bate com outro já agendado.", Snackbar.LENGTH_LONG).setAnchorView(fab).show()
@@ -824,25 +847,131 @@ class MainActivity : AppCompatActivity(), Acoes {
         sheet.show()
     }
 
+    /** Cadastro de local de trabalho: nome, forma de pagamento, valores, deslocamento e lembrete. local vazio = novo. */
     override fun editarRegra(local: String) {
-        val r = Regras.de(this, local)
-        val v = ui.col(20, 4)
-        val vf = numero("R$ por atendimento", if (r.porFicha > 0) fmtNum(r.porFicha) else "", true)
-        val vu = numero("R$ por UTI", if (r.porUti > 0) fmtNum(r.porUti) else "", true)
-        v.addView(ui.tv("Valores líquidos que este hospital paga (deixe UTI em branco se não houver), o tempo de deslocamento e o que não pode esquecer.", 14f, pal.mute), ui.lp(top = 4))
-        v.addView(campo("R$ por atendimento (ficha)", vf))
-        v.addView(campo("R$ por paciente de UTI", vu))
-        val desloc = numero("Minutos", if (r.deslocMin > 0) r.deslocMin.toString() else "")
+        fecharDia()
+        val novoLocal = local.isBlank()
+        val r = if (novoLocal) Regra() else Regras.de(this, local)
+        val fxAtual = Fixos.todos(this).firstOrNull { it.local.trim() == local.trim() && local.isNotBlank() }
+        val sheet = BottomSheetDialog(this)
+        val v = ui.col(20, 8)
+        v.addView(ui.tv(if (novoLocal) "Novo local de trabalho" else "Local de trabalho", 22f, pal.ink, 700), ui.lp(top = 8, bottom = 4))
+
+        val nome = TextInputEditText(this).apply { setText(local); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS }
+        v.addView(campo("Nome (ex.: Hospital Regional, Clínica Sul)", nome))
+
+        val formas = listOf(Regra.PRODUCAO to "Por produtividade (fichas e UTI)", Regra.PLANTAO to "Valor fixo por plantão",
+            Regra.HORA to "Valor por hora", Regra.SALARIO to "Salário mensal (contrato)")
+        val pagAtual = if (fxAtual != null) Regra.SALARIO else r.pagamento
+        val forma = MaterialAutoCompleteTextView(this).apply {
+            inputType = InputType.TYPE_NULL; setSimpleItems(formas.map { it.second }.toTypedArray())
+            setText(formas.first { it.first == pagAtual }.second, false)
+        }
+        v.addView(campo("Como este local paga", forma, true))
+
+        // campos de cada forma de pagamento
+        val vf = numero("", if (r.porFicha > 0) fmtNum(r.porFicha) else "", true)
+        val vu = numero("", if (r.porUti > 0) fmtNum(r.porUti) else "", true)
+        val prod = ui.lin(Gravity.TOP).apply {
+            addView(campo("R$ por ficha", vf).apply { layoutParams = ui.lp(0, WRAP, top = 12, peso = 1f) })
+            addView(campo("R$ por UTI", vu).apply { layoutParams = ui.lp(0, WRAP, top = 12, start = 10, peso = 1f) })
+        }
+        val vp = numero("", if (r.valorPlantao > 0) fmtNum(r.valorPlantao) else "", true)
+        val campoPlantao = campo("Valor líquido por plantão (R$)", vp)
+        val vh = numero("", if (r.valorHora > 0) fmtNum(r.valorHora) else "", true)
+        val campoHora = campo("Valor líquido por hora (R$)", vh)
+        val hoje = java.time.YearMonth.now()
+        val vs = numero("", fxAtual?.let { fmtNum(it.valor) } ?: "", true)
+        val desde = TextInputEditText(this).apply {
+            setText(fxAtual?.let { mesTexto(it.desde) } ?: "%02d/%04d".format(hoje.monthValue, hoje.year)); inputType = InputType.TYPE_CLASS_DATETIME
+        }
+        val sal = ui.lin(Gravity.TOP).apply {
+            addView(campo("Salário líquido por mês (R$)", vs).apply { layoutParams = ui.lp(0, WRAP, top = 12, peso = 1.3f) })
+            addView(campo("Desde (mês/ano)", desde).apply { layoutParams = ui.lp(0, WRAP, top = 12, start = 10, peso = 1f) })
+        }
+        val dica = ui.tv("", 13f, pal.mute)
+        v.addView(prod); v.addView(campoPlantao); v.addView(campoHora); v.addView(sal); v.addView(dica, ui.lp(top = 6))
+        fun ajusta() {
+            val f = formas.firstOrNull { it.second == forma.text.toString() }?.first ?: Regra.PRODUCAO
+            prod.visibility = if (f == Regra.PRODUCAO) View.VISIBLE else View.GONE
+            campoPlantao.visibility = if (f == Regra.PLANTAO) View.VISIBLE else View.GONE
+            campoHora.visibility = if (f == Regra.HORA) View.VISIBLE else View.GONE
+            sal.visibility = if (f == Regra.SALARIO) View.VISIBLE else View.GONE
+            dica.text = when (f) {
+                Regra.PRODUCAO -> "No fim de cada plantão o app pergunta as fichas e calcula o ganho."
+                Regra.PLANTAO -> "Cada plantão aqui já nasce com esse valor; não pede fichas."
+                Regra.HORA -> "O valor do plantão é calculado pelas horas; não pede fichas."
+                else -> "O salário entra todo mês no Financeiro; os plantões aqui não pedem fichas."
+            }
+        }
+        forma.setOnItemClickListener { _, _, _, _ -> ajusta() }
+        ajusta()
+
+        val desloc = numero("", if (r.deslocMin > 0) r.deslocMin.toString() else "")
         v.addView(campo("Tempo de casa até lá (minutos)", desloc))
         val levar = TextInputEditText(this).apply { setText(r.levar); inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES }
-        v.addView(campo("Não esquecer (ex.: carimbo, jaleco)", levar))
-        val sv = NestedScrollView(this); sv.addView(v)
-        MaterialAlertDialogBuilder(this).setTitle(local).setView(sv)
-            .setPositiveButton("Salvar") { _, _ ->
-                Regras.salvar(this, local, Regra(txt2num(vf.text), txt2num(vu.text), txt2num(desloc.text).toInt(), levar.text.toString().trim()))
-                ProximoWidget.atualizar(this); render(false)
+        v.addView(campo("Não esquecer (ex.: carimbo, jaleco, crachá)", levar))
+
+        val botoes = ui.lin(); botoes.gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        if (!novoLocal) botoes.addView(MaterialButton(this, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
+            text = "Remover"; isAllCaps = false; setTextColor(pal.choque)
+            setOnClickListener {
+                MaterialAlertDialogBuilder(this@MainActivity).setTitle("Remover ${local}?")
+                    .setMessage("Os valores e o salário deste local saem da configuração. Os plantões já cadastrados continuam na agenda.")
+                    .setPositiveButton("Remover") { _, _ ->
+                        Regras.remover(this@MainActivity, local)
+                        fxAtual?.let { Fixos.remover(this@MainActivity, it.id) }
+                        sheet.dismiss(); render(false)
+                    }.setNegativeButton("Cancelar", null).show()
             }
-            .setNegativeButton("Cancelar", null).show()
+        }, ui.lp(0, WRAP, peso = 1f))
+        val cancelar = MaterialButton(this, null, com.google.android.material.R.attr.borderlessButtonStyle).apply { text = "Cancelar"; isAllCaps = false }
+        val salvar = MaterialButton(this).apply { text = "Salvar"; isAllCaps = false; minWidth = ui.dp(120) }
+        botoes.addView(cancelar); botoes.addView(salvar, ui.lp(WRAP, WRAP, start = 8))
+        v.addView(botoes, ui.lp(top = 20, bottom = 16))
+        cancelar.setOnClickListener { sheet.dismiss() }
+        salvar.setOnClickListener {
+            val n = nome.text.toString().trim()
+            if (n.isEmpty()) { (nome.parent.parent as? TextInputLayout)?.error = "Dê um nome ao local"; return@setOnClickListener }
+            if (novoLocal && Regras.locais(this).any { it.equals(n, true) }) { (nome.parent.parent as? TextInputLayout)?.error = "Já existe um local com esse nome"; return@setOnClickListener }
+            val f = formas.firstOrNull { it.second == forma.text.toString() }?.first ?: Regra.PRODUCAO
+            var mesDesde: String? = null
+            if (f == Regra.SALARIO) {
+                if (txt2num(vs.text) <= 0) { (vs.parent.parent as? TextInputLayout)?.error = "Informe o salário"; return@setOnClickListener }
+                mesDesde = lerMes(desde.text.toString())
+                if (mesDesde == null) { (desde.parent.parent as? TextInputLayout)?.error = "Use mês/ano, ex.: 12/2026"; return@setOnClickListener }
+            }
+            if (!novoLocal && n != local.trim()) Regras.renomear(this, local, n)
+            val nova = Regra(txt2num(vf.text), txt2num(vu.text), txt2num(desloc.text).toInt(), levar.text.toString().trim(),
+                f, txt2num(vp.text), txt2num(vh.text))
+            Regras.salvar(this, n, nova)
+            // salário mensal: cria/atualiza o contrato vinculado; se deixou de ser salário, encerra no mês passado
+            val fx = Fixos.todos(this).firstOrNull { it.local.trim() == n }
+            if (f == Regra.SALARIO) {
+                Fixos.salvar(this, (fx ?: RendaFixa(nome = n, valor = 0.0, desde = mesDesde!!, local = n))
+                    .copy(valor = txt2num(vs.text), desde = mesDesde!!, ate = ""))
+            } else if (fx != null && fx.ate.isEmpty()) {
+                val ultimo = hoje.minusMonths(1)
+                val k = "%04d-%02d".format(ultimo.year, ultimo.monthValue)
+                if (k < fx.desde) Fixos.remover(this, fx.id) else Fixos.salvar(this, fx.copy(ate = k))
+            }
+            sheet.dismiss()
+            ProximoWidget.atualizar(this); render(false)
+            // valor fixo ou por hora: oferece aplicar aos plantões já cadastrados
+            val semValor = itens.count { it.local.trim() == n && !it.lancado && it.ativo && Math.abs(it.valor - nova.valorPara(it.durMin)) > 0.5 }
+            if ((f == Regra.PLANTAO || f == Regra.HORA) && nova.configurada && semValor > 0) {
+                MaterialAlertDialogBuilder(this).setTitle("Aplicar aos plantões de $n?")
+                    .setMessage("${pl(semValor, "plantão", "plantões")} deste local ainda ${if (semValor == 1) "está" else "estão"} sem esse valor. Aplicar ${nova.resumo().lowercase(PT)} a eles e às escalas?")
+                    .setPositiveButton("Aplicar") { _, _ -> Regras.aplicarValor(this, n, nova); render(false) }
+                    .setNegativeButton("Agora não", null).show()
+            } else Snackbar.make(box, "Local \"$n\" salvo.", Snackbar.LENGTH_SHORT).apply { if (fab.isShown) setAnchorView(fab) }.show()
+        }
+
+        val sv = NestedScrollView(this); sv.addView(v)
+        sheet.setContentView(sv)
+        sheet.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        sheet.behavior.skipCollapsed = true
+        sheet.show()
     }
 
     override fun editarMeta() {

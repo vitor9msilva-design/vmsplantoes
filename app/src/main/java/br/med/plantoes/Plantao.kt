@@ -93,8 +93,39 @@ data class Regra(
     val deslocMin: Int = 0,
     /** Lembrete fixo do hospital, ex.: "levar carimbo e jaleco". */
     val levar: String = "",
+    /** Como o local paga: produtividade (fichas/UTI), valor fixo por plantão, valor por hora ou salário mensal. */
+    val pagamento: String = PRODUCAO,
+    val valorPlantao: Double = 0.0,
+    val valorHora: Double = 0.0,
 ) {
-    val configurada: Boolean get() = porFicha > 0 || porUti > 0
+    val configurada: Boolean get() = when (pagamento) {
+        PLANTAO -> valorPlantao > 0
+        HORA -> valorHora > 0
+        SALARIO -> true
+        else -> porFicha > 0 || porUti > 0
+    }
+
+    /** Valor que um plantão de [durMin] minutos já nasce valendo (pagamento fixo ou por hora); 0 = depende de fichas. */
+    fun valorPara(durMin: Int): Double = when (pagamento) {
+        PLANTAO -> valorPlantao
+        HORA -> valorHora * durMin / 60.0
+        else -> 0.0
+    }
+
+    fun resumo(): String = when (pagamento) {
+        PLANTAO -> "${brl0(valorPlantao)} por plantão"
+        HORA -> "${brl0(valorHora)} por hora"
+        SALARIO -> "Salário mensal (plantões não pedem fichas)"
+        else -> if (porFicha <= 0 && porUti <= 0) "Produtividade · valores não informados"
+        else "Produtividade · ${brl0(porFicha)}/ficha" + if (porUti > 0) " · ${brl0(porUti)}/UTI" else ""
+    }
+
+    companion object {
+        const val PRODUCAO = "producao"
+        const val PLANTAO = "plantao"
+        const val HORA = "hora"
+        const val SALARIO = "salario"
+    }
 }
 
 object Regras {
@@ -102,7 +133,8 @@ object Regras {
         val o = try { JSONObject(Store.prefs(ctx).getString("regras", "{}")!!) } catch (_: Exception) { JSONObject() }
         return o.keys().asSequence().associateWith { k ->
             val r = o.getJSONObject(k)
-            Regra(r.optDouble("porFicha", 0.0), r.optDouble("porUti", 0.0), r.optInt("deslocMin", 0), r.optString("levar", ""))
+            Regra(r.optDouble("porFicha", 0.0), r.optDouble("porUti", 0.0), r.optInt("deslocMin", 0), r.optString("levar", ""),
+                r.optString("pagamento", Regra.PRODUCAO), r.optDouble("valorPlantao", 0.0), r.optDouble("valorHora", 0.0))
         }
     }
 
@@ -111,8 +143,47 @@ object Regras {
     fun salvar(ctx: Context, local: String, r: Regra) {
         val o = try { JSONObject(Store.prefs(ctx).getString("regras", "{}")!!) } catch (_: Exception) { JSONObject() }
         o.put(local.trim(), JSONObject().put("porFicha", r.porFicha).put("porUti", r.porUti)
-            .put("deslocMin", r.deslocMin).put("levar", r.levar))
+            .put("deslocMin", r.deslocMin).put("levar", r.levar)
+            .put("pagamento", r.pagamento).put("valorPlantao", r.valorPlantao).put("valorHora", r.valorHora))
         Store.prefs(ctx).edit().putString("regras", o.toString()).apply()
+        Paleta.atribuir(ctx, listOf(local.trim()))
+    }
+
+    fun remover(ctx: Context, local: String) {
+        val o = try { JSONObject(Store.prefs(ctx).getString("regras", "{}")!!) } catch (_: Exception) { JSONObject() }
+        o.remove(local.trim())
+        Store.prefs(ctx).edit().putString("regras", o.toString()).apply()
+    }
+
+    /** Todos os locais conhecidos: cadastrados e os que aparecem nos plantões. */
+    fun locais(ctx: Context): List<String> =
+        (todas(ctx).keys + Store.all(ctx).map { it.local.trim() } + Fixos.locais(ctx)).filter { it.isNotEmpty() }
+            .distinctBy { it.lowercase(PT) }.sortedWith(String.CASE_INSENSITIVE_ORDER)
+
+    /** Renomeia um local em tudo: plantões, escalas, salário vinculado, valores e cor. */
+    fun renomear(ctx: Context, antigo: String, novo: String) {
+        val a = antigo.trim(); val n = novo.trim()
+        if (a == n || n.isEmpty()) return
+        val r = todas(ctx)[a]
+        if (r != null) { remover(ctx, a); salvar(ctx, n, r) }
+        for (s in Series.todas(ctx).filter { it.local.trim() == a }) Series.salvar(ctx, s.copy(local = n))
+        for (f in Fixos.todos(ctx).filter { it.local.trim() == a }) Fixos.salvar(ctx, f.copy(local = n))
+        Paleta.mapa[a]?.let { cor -> Paleta.mapa.remove(a); Paleta.mapa[n] = cor
+            Store.prefs(ctx).edit().putString("cores", Paleta.mapa.entries.joinToString("\n") { "${it.key}=${it.value}" }).apply() }
+        val l = Store.all(ctx).map { if (it.local.trim() == a) it.copy(local = n) else it }
+        Store.substituir(ctx, l)
+    }
+
+    /** Aplica o valor fixo/por hora aos plantões ainda sem valor e sem fichas, e às escalas do local. */
+    fun aplicarValor(ctx: Context, local: String, r: Regra): Int {
+        if (r.pagamento != Regra.PLANTAO && r.pagamento != Regra.HORA) return 0
+        for (s in Series.todas(ctx).filter { it.local.trim() == local.trim() }) Series.salvar(ctx, s.copy(valor = r.valorPara(s.durMin)))
+        var n = 0
+        val l = Store.all(ctx).map {
+            if (it.local.trim() == local.trim() && !it.lancado && it.ativo) { n++; it.copy(valor = r.valorPara(it.durMin)) } else it
+        }
+        if (n > 0) Store.substituir(ctx, l)
+        return n
     }
 
     fun meta(ctx: Context): Double = Store.prefs(ctx).getFloat("metaHora", 100f).toDouble()

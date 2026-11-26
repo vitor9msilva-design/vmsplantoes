@@ -696,19 +696,38 @@ class Telas(internal val ui: Ui, internal val a: Acoes) {
         metas += ui.linha("Adicionar salário ou renda fixa", "Contrato CLT, concurso, bolsa: valor líquido por mês") { a.editarFixo(null) }
         v.addView(ui.grupo(*metas.toTypedArray()))
 
-        v.addView(ui.secao("Hospitais"))
-        val locais = (d.lista.map { it.local } + d.regras.keys).map { it.trim() }.filter { it.isNotEmpty() }.distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
+        // ---- locais de trabalho ----
+        val locais = (d.lista.map { it.local } + d.regras.keys + d.locaisFixos).map { it.trim() }.filter { it.isNotEmpty() }
+            .distinctBy { it.lowercase(PT) }.sortedWith(String.CASE_INSENSITIVE_ORDER)
+        v.addView(ui.secao("Locais de trabalho", if (locais.isEmpty()) null else "${locais.size}"))
         val linhasG = mutableListOf<View>()
         for (l in locais) {
             val r = d.regras[l]
-            val sub = if (r == null || !r.configurada) "Toque para informar quanto paga"
-            else listOfNotNull("${brl0(r.porFicha)} por atendimento", if (r.porUti > 0) "${brl0(r.porUti)} por UTI" else "sem UTI",
-                if (r.deslocMin > 0) "${r.deslocMin} min de trajeto" else null).joinToString(" · ")
-            val fixo = l in d.locaisFixos
-            linhasG += ui.linha(l, if (fixo) "Pago pelo salário fixo" + (if (r != null && r.deslocMin > 0) " · ${r.deslocMin} min de trajeto" else "") else sub,
-                if (!fixo && (r == null || !r.configurada)) pal.alerta else pal.mute) { a.editarRegra(l) }
+            val fx = d.fixos.firstOrNull { it.local.trim() == l && it.ate.isEmpty() }
+            val pag = when {
+                fx != null -> "Salário ${brl0(fx.valor)}/mês"
+                r == null -> "Toque para informar como paga"
+                else -> r.resumo()
+            }
+            val extra = listOfNotNull(
+                r?.deslocMin?.takeIf { it > 0 }?.let { "$it min de trajeto" },
+                d.lista.count { it.local.trim() == l && it.ativo && it.fim > d.now }.takeIf { it > 0 }?.let { pl(it, "plantão à frente", "plantões à frente") },
+            )
+            val aviso = fx == null && (r == null || !r.configurada)
+            val row = ui.lin()
+            row.setPadding(ui.dp(16), ui.dp(14), ui.dp(12), ui.dp(14))
+            row.addView(ui.ponto(corDo(l), 12))
+            val t = ui.col()
+            t.addView(ui.tv(l, 16f, pal.ink, 600))
+            t.addView(ui.tv(pag, 13f, if (aviso) pal.alerta else pal.ink2, 500), ui.lp(top = 3))
+            if (extra.isNotEmpty()) t.addView(ui.tv(extra.joinToString(" · "), 12f, pal.mute), ui.lp(top = 2))
+            row.addView(t, ui.lp(0, WRAP, start = 12, peso = 1f))
+            row.addView(ui.tv("›", 22f, pal.mute))
+            row.setBackgroundResource(android.util.TypedValue().also { ui.c.theme.resolveAttribute(android.R.attr.selectableItemBackground, it, true) }.resourceId)
+            row.setOnClickListener { a.editarRegra(l) }
+            linhasG += row
         }
-        if (linhasG.isEmpty()) linhasG += ui.linha("Nenhum hospital ainda", "Cadastre plantões para configurar cada local")
+        linhasG += ui.linha("+ Adicionar local de trabalho", "Hospital, clínica ou contrato: como paga, trajeto e lembretes", pal.acc) { a.editarRegra("") }
         v.addView(ui.grupo(*linhasG.toTypedArray()))
 
         v.addView(ui.secao("Alarmes"))
