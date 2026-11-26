@@ -218,6 +218,16 @@ object Store {
         }
     }
 
+    /** Salários fixos que vieram no arquivo da página (se houver). */
+    fun lerFixos(txt: String): List<RendaFixa> = try {
+        val arr = JSONObject(txt).optJSONArray("fixos") ?: JSONArray()
+        (0 until arr.length()).map { i ->
+            val x = arr.getJSONObject(i)
+            RendaFixa(nome = x.getString("nome").trim(), valor = x.getDouble("valor"), desde = x.getString("desde"),
+                ate = x.optString("ate", ""), local = x.optString("local", "").trim())
+        }
+    } catch (_: Exception) { emptyList() }
+
     fun prefs(ctx: Context) = ctx.getSharedPreferences("config", Context.MODE_PRIVATE)
     fun descansoMin(ctx: Context) = prefs(ctx).getInt("descansoH", 0) * 60
 
@@ -522,6 +532,39 @@ object Series {
         val corte = aPartirDe.ms()
         val rem = Store.all(ctx).filter { it.serieId == id && it.inicio >= corte && !it.lancado }.map { it.id }.toSet()
         if (rem.isNotEmpty()) Store.remover(ctx, rem)
+    }
+
+    /** Padrão encontrado na agenda: mesmo local, dia da semana, horário e duração, repetindo em intervalo regular. */
+    data class Padrao(val local: String, val setor: String, val hora: String, val durMin: Int, val intervalo: Int,
+                      val primeira: java.time.LocalDate, val qtd: Int, val valor: Double, val obs: String) {
+        fun serie() = Serie(local = local, setor = setor, hora = hora, durMin = durMin, inicio = primeira.toString(),
+            intervalo = intervalo, valor = valor, obs = obs)
+        fun descricao() = serie().descricao()
+    }
+
+    private fun mdc(a: Long, b: Long): Long = if (b == 0L) a else mdc(b, a % b)
+
+    /** Procura, nos plantões futuros que ainda não são de escala, grupos que se repetem toda semana, a cada 15 dias etc. */
+    fun padroes(list: List<Plantao>, hoje: java.time.LocalDate = java.time.LocalDate.now()): List<Padrao> {
+        val corte = hoje.ms()
+        val grupos = list.filter { it.ativo && !it.avulso && it.serieId.isEmpty() && it.inicio >= corte }.groupBy {
+            val l = it.inicio.ldt()
+            listOf(it.local.trim().lowercase(PT), l.dayOfWeek.value, l.hour, l.minute, it.durMin)
+        }
+        val out = mutableListOf<Padrao>()
+        for ((_, ps) in grupos) {
+            if (ps.size < 2) continue
+            val datas = ps.map { it.inicio.ldt().toLocalDate() }.distinct().sorted()
+            if (datas.size < 2) continue
+            var g = 0L
+            for (i in 1 until datas.size) g = mdc(g, java.time.temporal.ChronoUnit.DAYS.between(datas[i - 1], datas[i]))
+            if (g !in setOf(7L, 14L, 21L, 28L)) continue
+            val p0 = ps.minBy { it.inicio }
+            val l = p0.inicio.ldt()
+            out += Padrao(p0.local.trim(), ps.groupingBy { it.setor }.eachCount().maxBy { it.value }.key,
+                "%02d:%02d".format(l.hour, l.minute), p0.durMin, g.toInt(), datas.first(), ps.size, p0.valor, p0.obs)
+        }
+        return out.sortedWith(compareBy({ it.primeira.dayOfWeek.value % 7 }, { it.hora }))
     }
 
     /**

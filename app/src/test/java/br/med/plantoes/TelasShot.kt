@@ -82,6 +82,9 @@ class TelasShot {
         override fun backup() {}
         override fun restaurar() {}
         override fun editarSerie(s: Serie) {}
+        override fun abrirDia(dia: LocalDate) {}
+        override fun tornarFixo(p: Plantao) {}
+        override fun automatizar() {}
     }
 
     private fun dados(faltas: List<String> = emptyList(), dias: Long = 60, antes: Long = 400) =
@@ -119,6 +122,7 @@ class TelasShot {
     @Test fun financeiroMes() = paparazzi.snapshot(tela { t -> t.mesGanhos = YearMonth.of(2026, 11); t.financeiro(dados(antes = 40).let { dd -> dd.copy(lista = dd.lista.filter { it.inicio >= LocalDate.of(2026, 11, 22).ms() || it.inicio < LocalDate.of(2026, 11, 1).ms() }) }) })
     @Test fun financeiroPrevisao() = paparazzi.snapshot(tela { t -> t.mesGanhos = YearMonth.of(2026, 12); t.financeiro(dados(dias = 8, antes = 40)) })
     @Test fun linhaDoTempo() = paparazzi.snapshot(tela { t -> t.finModo = 1; t.mesGanhos = YearMonth.of(2026, 12); t.financeiro(dados()) })
+    @Test fun painelDia() = paparazzi.snapshot(tela { it.diaConteudo(dados(), hoje.plusDays(3)) })
     @Test fun ajustesVerde() = paparazzi.snapshot(tela("verde") { it.ajustes(dados(), "verde") })
     @Test fun inicioPendente() = paparazzi.snapshot(tela { t ->
         val d = dados(antes = 3)

@@ -120,3 +120,27 @@ class SerieTest {
         assertTrue(s.descricao().contains("a cada 15 dias"))
     }
 }
+
+class PadraoTest {
+    private fun p(d: String, h: Int, local: String = "Hospital A", dur: Int = 12) =
+        Plantao(local = local, inicio = LocalDate.parse(d).atTime(h, 0).ms(), durMin = dur * 60)
+
+    @Test fun achaSemanalEQuinzenal() {
+        val l = listOf(
+            p("2027-01-06", 8), p("2027-01-13", 8), p("2027-01-20", 8),                  // quartas, toda semana
+            p("2027-01-07", 7, "Hospital B", 6), p("2027-01-21", 7, "Hospital B", 6),      // quintas, a cada 15 dias
+            p("2027-01-08", 19, "Hospital C"),                                             // só uma vez: não é padrão
+        )
+        val ps = Series.padroes(l, LocalDate.parse("2027-01-01"))
+        assertEquals(2, ps.size)
+        assertEquals(7, ps.first { it.local == "Hospital A" }.intervalo)
+        assertEquals(14, ps.first { it.local == "Hospital B" }.intervalo)
+        assertEquals("2027-01-07", ps.first { it.local == "Hospital B" }.primeira.toString())
+    }
+
+    @Test fun ignoraAvulsoEEscala() {
+        val l = listOf(p("2027-01-06", 8).copy(tipo = Plantao.AVULSO), p("2027-01-13", 8).copy(tipo = Plantao.AVULSO),
+            p("2027-01-07", 8).copy(serieId = "x"), p("2027-01-14", 8).copy(serieId = "x"))
+        assertTrue(Series.padroes(l, LocalDate.parse("2027-01-01")).isEmpty())
+    }
+}

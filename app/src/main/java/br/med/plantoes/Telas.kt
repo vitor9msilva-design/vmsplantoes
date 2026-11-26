@@ -42,6 +42,9 @@ interface Acoes {
     fun backup()
     fun restaurar()
     fun editarSerie(s: Serie)
+    fun abrirDia(dia: LocalDate)
+    fun tornarFixo(p: Plantao)
+    fun automatizar()
 }
 
 /** Tudo o que as telas precisam saber para se desenhar. */
@@ -115,6 +118,7 @@ class Telas(internal val ui: Ui, internal val a: Acoes) {
             "Jornada longa: ${horasCurto(Math.round(j.horas * 60))} seguidas",
             "${diaCurto(j.ini)} ${hm(j.ini)} → ${diaCurto(j.fim)} ${hm(j.fim)} · ${j.plantoes.joinToString(" + ") { abrev(it.local) }}",
             "Ver") { semana = inicioSemana(j.ini.ldt().toLocalDate()); calModo = 0; a.irPara(2) })
+        cartaoPadroes(v, d)
         val pend = pendentes(d)
         if (pend.isNotEmpty()) {
             v.addView(ui.secao("Lançar fichas", "${pend.size} pendente" + if (pend.size > 1) "s" else ""))
@@ -339,7 +343,11 @@ class Telas(internal val ui: Ui, internal val a: Acoes) {
         if (p.obs.isNotBlank()) info.addView(ui.tv(p.obs, 13f, pal.ink2, 400), ui.lp(top = 4))
         if (choque) info.addView(ui.pill("Choque de horário", pal.choque), ui.lp(WRAP, WRAP, top = 8))
         if (p.avulso) info.addView(ui.pill("Avulso", pal.avulso), ui.lp(WRAP, WRAP, top = 8))
-        else if (p.serieId.isNotEmpty() && p.inicio > now) info.addView(ui.tv("↻ Escala fixa", 12f, pal.mute, 500), ui.lp(top = 6))
+        if (p.serieId.isNotEmpty() && p.inicio > now) info.addView(ui.tv("↻ Escala fixa", 12f, pal.mute, 500), ui.lp(top = 6))
+        else if (p.serieId.isEmpty() && p.ativo && p.inicio > now)
+            info.addView(botaoTexto(if (p.avulso) "↻ Tornar fixo e repetir" else "↻ Repetir sempre") { a.tornarFixo(p) }.apply {
+                setPadding(0, 0, 0, 0); minHeight = ui.dp(32); minimumHeight = ui.dp(32); textSize = 13f
+            }, ui.lp(WRAP, WRAP, top = 2))
         if (p.situacao == Plantao.REPASSADO)
             info.addView(ui.pill("Repassado" + if (p.colega.isNotBlank()) " para ${p.colega}" else "", pal.mute, pal.surface2), ui.lp(WRAP, WRAP, top = 8))
         if (p.situacao == Plantao.COBERTURA)
@@ -391,6 +399,7 @@ class Telas(internal val ui: Ui, internal val a: Acoes) {
             if (fut.isEmpty()) "Nenhum plantão pela frente" else "${pl(fut.size, "plantão", "plantões")} pela frente · ${horas(fut.sumOf { it.durMin.toLong() })}"))
         val conf = Store.conflitos(fut)
         if (conf.isNotEmpty()) v.addView(aviso("Choque de horário", "${conf.size} plantões se sobrepõem. Estão marcados em vermelho.", "Calendário") { calMes = false; a.irPara(2) })
+        cartaoPadroes(v, d)
         val lista = d.lista.filter { it.fim > d.now - 12 * HOUR }
         if (lista.isEmpty()) {
             v.addView(vazioGrande("Agenda vazia", "Toque em Plantão para cadastrar, ou em Ajustes › Receber plantões da página."))
@@ -456,7 +465,7 @@ class Telas(internal val ui: Ui, internal val a: Acoes) {
             card.addView(WeekView(ui.c, pal).apply {
                 semanaIni = semana; dados = lista; descansoMin = d.descansoMin; choques = conf; agora = d.now
                 onPlantao = { a.editar(it) }
-                onDia = { dd -> diaSel = dd; mes = YearMonth.from(dd); calMes = true; a.redesenhar() }
+                onDia = { dd -> diaSel = dd; a.abrirDia(dd) }
             })
             v.addView(card)
             val ini = semana.ms(); val fim = semana.plusDays(7).ms()
@@ -467,7 +476,7 @@ class Telas(internal val ui: Ui, internal val a: Acoes) {
         } else {
             card.addView(MonthView(ui.c, pal).apply {
                 mesAtual = mes; dados = lista; descansoMin = d.descansoMin; choques = conf; selecionado = diaSel
-                onDia = { dd -> diaSel = dd; if (YearMonth.from(dd) != mes) mes = YearMonth.from(dd); a.redesenhar() }
+                onDia = { dd -> diaSel = dd; if (YearMonth.from(dd) != mes) mes = YearMonth.from(dd); a.redesenhar(); a.abrirDia(dd) }
             }, android.widget.FrameLayout.LayoutParams(MATCH, WRAP).apply { setMargins(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4)) })
             v.addView(card)
             val ini = mes.atDay(1).ms(); val fim = mes.plusMonths(1).atDay(1).ms()
@@ -574,6 +583,46 @@ class Telas(internal val ui: Ui, internal val a: Acoes) {
         d.ativos.filter { it.fim <= d.now && !it.lancado && it.valor <= 0 && it.fim > d.now - 30 * DAY && it.local.trim() !in d.locaisFixos }
             .sortedByDescending { it.inicio }
 
+    /** Se a agenda tem plantões que se repetem mas ainda não são escala, oferece automatizar com um toque. */
+    internal fun cartaoPadroes(v: LinearLayout, d: Dados) {
+        val ps = Series.padroes(d.lista, d.now.ldt().toLocalDate())
+        if (ps.isEmpty()) return
+        v.addView(avisoNeutro("Automatizar sua escala",
+            "Encontrei ${pl(ps.size, "plantão que se repete", "plantões que se repetem")} (${ps.take(2).joinToString(", ") { abrev(it.local) + " " + it.hora }}${if (ps.size > 2) "…" else ""}). Transforme em escala fixa automática.",
+            "Automatizar") { a.automatizar() })
+    }
+
+    /** Conteúdo do painel de um dia: plantões (toque para editar), horários livres e botão para criar. */
+    fun diaConteudo(d: Dados, dia: LocalDate): View {
+        meta = d.meta; locaisFixos = d.locaisFixos
+        val v = ui.col()
+        val ds = dia.ms(); val de = dia.plusDays(1).ms()
+        val doDia = d.lista.filter { it.inicio < de && it.fim > ds }.sortedBy { it.inicio }
+        val conf = Store.conflitos(d.ativos)
+        val topo = ui.lin()
+        val t = ui.col()
+        t.addView(ui.tv(diaLongo(dia), 22f, pal.ink, 700))
+        t.addView(ui.tv(if (doDia.isEmpty()) "Nenhum plantão" else "${pl(doDia.count { it.ativo }, "plantão", "plantões")} · ${horas(doDia.filter { it.ativo }.sumOf { it.durMin.toLong() })}" +
+            " · toque num plantão para editar", 13f, pal.mute), ui.lp(top = 4))
+        topo.addView(t, ui.lp(0, WRAP, peso = 1f))
+        v.addView(topo, ui.lp(top = 8, bottom = 12))
+        val js = Livre.janelas(d.ativos, ds, de, d.descansoMin).filter { it.min >= 60 }
+        val eventos = doDia.map { maxOf(it.inicio, ds) to (it as Any) } + js.map { it.ini to (it as Any) }
+        for ((_, e) in eventos.sortedBy { it.first }) {
+            if (e is Plantao) v.addView(itemRow(e, e.id in conf, d.now)) else if (e is Janela) v.addView(livreCard(e))
+        }
+        val primeiraLivre = js.firstOrNull()?.ini ?: dia.atTime(7, 0).ms()
+        val novo = com.google.android.material.button.MaterialButton(ui.c).apply {
+            text = "+ Novo plantão neste dia"; isAllCaps = false
+            setOnClickListener {
+                val l = primeiraLivre.ldt()
+                a.editar(null, (if (l.minute == 0) l else l.truncatedTo(java.time.temporal.ChronoUnit.HOURS).plusHours(1)).ms())
+            }
+        }
+        v.addView(novo, ui.lp(top = 8, bottom = 16))
+        return v
+    }
+
     internal fun avisoNeutro(titulo: String, texto: String, botao: String, onClick: () -> Unit): View {
         val c = ui.card(pal.accClaro, pal.accClaro)
         val r = ui.lin()
@@ -632,7 +681,8 @@ class Telas(internal val ui: Ui, internal val a: Acoes) {
             r.setOnClickListener { a.editarSerie(sr) }
             r as View
         }.toMutableList()
-        if (ls.isEmpty()) ls += ui.linha("Nenhuma escala automática", "Ao cadastrar um plantão fixo, escolha Repetir para ele se renovar sozinho")
+        val nPad = Series.padroes(d.lista, d.now.ldt().toLocalDate()).size
+        ls += ui.linha("Automatizar minha escala", if (nPad > 0) "Encontrei ${pl(nPad, "padrão", "padrões")} na agenda: toque para transformar" else "Procura plantões que se repetem e cria as escalas", if (nPad > 0) pal.acc else pal.mute) { a.automatizar() }
         v.addView(ui.grupo(*ls.toTypedArray()))
 
         v.addView(ui.secao("Financeiro"))

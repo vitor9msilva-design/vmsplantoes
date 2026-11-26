@@ -287,15 +287,16 @@ class MainActivity : AppCompatActivity(), Acoes {
 
     private val abrirArquivo = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@registerForActivityResult
+        val txt = try { contentResolver.openInputStream(uri)!!.bufferedReader().readText() } catch (_: Exception) { "" }
         val novos = try {
-            Store.lerArquivo(contentResolver.openInputStream(uri)!!.bufferedReader().readText())
+            Store.lerArquivo(txt)
         } catch (_: Exception) {
             MaterialAlertDialogBuilder(this).setTitle("Arquivo não reconhecido")
                 .setMessage("Escolha o arquivo gerado pelo botão \"Enviar para o app\" da página (plantoes-pagina.json).")
                 .setPositiveButton("OK", null).show()
             return@registerForActivityResult
         }
-        receberLista(novos)
+        receberLista(novos, Store.lerFixos(txt))
     }
 
     override fun onCreate(s: Bundle?) {
@@ -504,6 +505,7 @@ class MainActivity : AppCompatActivity(), Acoes {
     }
 
     override fun editar(p: Plantao?, preset: Long?) {
+        fecharDia()
         val sheet = BottomSheetDialog(this)
         val v = ui.col(20, 8)
         var ini: LocalDateTime = (p?.inicio ?: preset ?: LocalDate.now().plusDays(1).atTime(19, 0).ms()).ldt().withSecond(0).withNano(0)
@@ -513,6 +515,12 @@ class MainActivity : AppCompatActivity(), Acoes {
         if (p != null) topo.addView(ui.icone(R.drawable.ic_delete, "Excluir só este plantão", pal.choque) { sheet.dismiss(); excluir(p) },
             LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)))
         v.addView(topo, ui.lp(top = 8, bottom = 4))
+        if (p != null && p.serieId.isEmpty() && p.ativo && p.inicio > System.currentTimeMillis()) {
+            v.addView(MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                text = if (p.avulso) "↻ Tornar fixo e repetir sempre" else "↻ Repetir sempre (escala automática)"; isAllCaps = false
+                setOnClickListener { sheet.dismiss(); tornarFixo(p) }
+            }, ui.lp(top = 4, bottom = 4))
+        }
 
         val locais = itens.map { it.local }.distinct().sorted().toTypedArray()
         val local = MaterialAutoCompleteTextView(this).apply {
@@ -715,6 +723,7 @@ class MainActivity : AppCompatActivity(), Acoes {
     }
 
     override fun lancar(p: Plantao) {
+        fecharDia()
         val sheet = BottomSheetDialog(this)
         val v = ui.col(20, 8)
         val regra = Regras.de(this, p.local)
@@ -848,6 +857,7 @@ class MainActivity : AppCompatActivity(), Acoes {
 
     /** Lixeira: apaga sempre UM plantão só. Para apagar vários, use "Excluir vários plantões" em Ajustes. */
     override fun excluir(p: Plantao) {
+        fecharDia()
         val l = p.inicio.ldt()
         val serie = p.serieId.takeIf { it.isNotEmpty() }?.let { Series.de(this, it) }
         val b = MaterialAlertDialogBuilder(this).setTitle("Excluir este plantão?")
@@ -945,8 +955,89 @@ class MainActivity : AppCompatActivity(), Acoes {
             .apply { if (fab.isShown) setAnchorView(fab) }.show()
     }
 
-    private fun receberLista(novos: List<Plantao>) {
-        if (novos.isEmpty()) { Toast.makeText(this, "O arquivo não tem plantões.", Toast.LENGTH_LONG).show(); return }
+    // ---------- painel do dia ----------
+    private var folhaDia: BottomSheetDialog? = null
+
+    private fun fecharDia() { folhaDia?.dismiss(); folhaDia = null }
+
+    override fun abrirDia(dia: LocalDate) {
+        fecharDia()
+        val sheet = BottomSheetDialog(this)
+        val sv = NestedScrollView(this)
+        val c = telas.diaConteudo(dados(), dia)
+        c.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), ui.dp(8))
+        sv.addView(c)
+        sheet.setContentView(sv)
+        sheet.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        sheet.behavior.skipCollapsed = true
+        sheet.setOnDismissListener { if (folhaDia === sheet) folhaDia = null }
+        folhaDia = sheet
+        sheet.show()
+    }
+
+    // ---------- transformar em escala fixa ----------
+    private val INTERVALOS = listOf("Toda semana" to 7, "A cada 15 dias" to 14, "A cada 3 semanas" to 21, "A cada 4 semanas" to 28)
+
+    override fun tornarFixo(p: Plantao) {
+        fecharDia()
+        val l = p.inicio.ldt()
+        // sugere o intervalo que a agenda já mostra para esse plantão, se houver
+        val sugerido = Series.padroes(itens).firstOrNull {
+            it.local.equals(p.local.trim(), true) && it.hora == "%02d:%02d".format(l.hour, l.minute) && it.durMin == p.durMin &&
+                it.primeira.dayOfWeek == l.dayOfWeek
+        }?.intervalo ?: 7
+        var escolha = INTERVALOS.indexOfFirst { it.second == sugerido }.coerceAtLeast(0)
+        val dia = l.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, PT)
+        MaterialAlertDialogBuilder(this).setTitle("Repetir sempre")
+            .setSingleChoiceItems(INTERVALOS.map { "${it.first} ($dia, ${hm(p.inicio)})" }.toTypedArray(), escolha) { _, i -> escolha = i }
+            .setPositiveButton("Criar escala fixa") { _, _ ->
+                val fixo = p.copy(tipo = Plantao.FIXO)
+                Store.atualizar(this, fixo)
+                val n = Series.criar(this, Serie(local = p.local.trim(), setor = p.setor, hora = "%02d:%02d".format(l.hour, l.minute), durMin = p.durMin,
+                    inicio = l.toLocalDate().toString(), intervalo = INTERVALOS[escolha].second, valor = p.valor, obs = p.obs))
+                render(false)
+                Snackbar.make(box, "${p.local} virou escala fixa (${INTERVALOS[escolha].first.lowercase(PT)}). " +
+                    (if (n > 0) "$n plantões criados à frente." else "Os plantões já cadastrados foram aproveitados."), Snackbar.LENGTH_LONG)
+                    .apply { if (fab.isShown) setAnchorView(fab) }.show()
+            }
+            .setNegativeButton("Cancelar", null).show()
+    }
+
+    /** Detecta os plantões que se repetem e transforma todos em escalas automáticas de uma vez. */
+    override fun automatizar() {
+        val ps = Series.padroes(itens)
+        if (ps.isEmpty()) {
+            MaterialAlertDialogBuilder(this).setTitle("Nada para automatizar")
+                .setMessage("Não encontrei plantões repetidos fora de escala. Para criar uma, toque em \"↻ Repetir sempre\" num plantão.")
+                .setPositiveButton("OK", null).show(); return
+        }
+        val marcados = BooleanArray(ps.size) { true }
+        MaterialAlertDialogBuilder(this).setTitle("Automatizar sua escala")
+            .setMultiChoiceItems(ps.map { "${it.local}${if (it.setor.isNotBlank()) " · " + it.setor else ""}\n${it.descricao()} · ${it.qtd} na agenda" }.toTypedArray(), marcados) { _, i, x -> marcados[i] = x }
+            .setPositiveButton("Transformar em fixos") { _, _ ->
+                val escolhidos = ps.filterIndexed { i, _ -> marcados[i] }
+                var criados = 0
+                for (pd in escolhidos) criados += Series.criar(this, pd.serie())
+                render(false)
+                MaterialAlertDialogBuilder(this).setTitle("Escala automática pronta")
+                    .setMessage("${pl(escolhidos.size, "escala criada", "escalas criadas")}. Os plantões que já existiam foram aproveitados" +
+                        (if (criados > 0) " e $criados novos foram criados à frente" else "") +
+                        ".\n\nDaqui em diante o app renova sozinho. Para mudar, edite um plantão e escolha \"Este e os próximos\", ou use Ajustes › Escala fixa.")
+                    .setPositiveButton("OK", null).show()
+            }
+            .setNegativeButton("Cancelar", null).show()
+    }
+
+    private fun receberLista(novos: List<Plantao>, fixos: List<RendaFixa> = emptyList()) {
+        // salário fixo que veio da página: entra direto (sem duplicar pelo nome)
+        val nomes = Fixos.todos(this).map { it.nome.trim().lowercase(PT) }.toSet()
+        val fxNovos = fixos.filter { it.nome.trim().lowercase(PT) !in nomes }
+        fxNovos.forEach { Fixos.salvar(this, it) }
+        if (fxNovos.isNotEmpty()) {
+            render(false)
+            Snackbar.make(box, "Salário fixo adicionado: " + fxNovos.joinToString { "${it.nome} ${brl0(it.valor)}/mês" }, Snackbar.LENGTH_LONG).show()
+        }
+        if (novos.isEmpty()) { if (fxNovos.isEmpty()) Toast.makeText(this, "O arquivo não tem plantões.", Toast.LENGTH_LONG).show(); return }
         val chave = { p: Plantao -> p.local.lowercase(PT) + "|" + p.inicio }
         val tem = itens.map(chave).toSet()
         val faltam = novos.filter { chave(it) !in tem }

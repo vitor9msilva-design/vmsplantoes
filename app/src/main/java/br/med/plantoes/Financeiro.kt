@@ -127,6 +127,9 @@ private fun Telas.mesFinanceiro(v: LinearLayout, d: Dados) {
         LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)))
     v.addView(nav, ui.lp(bottom = 8))
 
+    if (d.fixos.isEmpty()) v.addView(avisoNeutro("Salário fixo",
+        "Seu salário do contrato vem da página: lá, toque em \"Enviar para o app\"; aqui, em Ajustes › Receber plantões da página. Ou adicione à mão.",
+        "Adicionar") { a.editarFixo(null) })
     val ym = mesGanhos
     val r = resumoMes(d, ym)
     val ini = ym.atDay(1).ms(); val fim = ym.plusMonths(1).atDay(1).ms()

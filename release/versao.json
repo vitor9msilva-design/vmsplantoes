@@ -1,5 +1,5 @@
 {
-  "versionCode": 9,
-  "versionName": "1.8",
-  "novidades": "• Plantão Fixo ou Avulso: os avulsos têm etiqueta e contorno tracejado no calendário.\n• Escala automática: escolha Repetir (toda semana, a cada 15 dias...) e o app cria os próximos plantões sozinho, sem fim, até você mudar.\n• Editar ou excluir na escala: Só este, Este e os próximos, ou Encerrar escala.\n• Meta automática: cada plantão fixo vale R$ 100/h de meta, e embaixo aparece quanto ficou acima ou abaixo.\n• A meta do mês soma os fixos e o salário; os avulsos aparecem como extra."
+  "versionCode": 10,
+  "versionName": "1.9",
+  "novidades": "• Toque numa data do calendário: abre o painel do dia com os plantões para editar, apagar ou criar.\n• Automatizar minha escala: o app encontra os plantões que se repetem e transforma tudo em escala fixa de uma vez.\n• Botão ↻ Repetir sempre em cada plantão.\n• O salário fixo vem junto com a escala da página (Receber plantões da página)."
 }
