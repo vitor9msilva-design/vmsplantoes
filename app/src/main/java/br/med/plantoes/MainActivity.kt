@@ -358,6 +358,7 @@ class MainActivity : AppCompatActivity(), Acoes {
         super.onResume()
         verificarBloqueio()
         Series.gerar(this)
+        ProximoWidget.atualizar(this)
         render(false)
         handler.removeCallbacks(tick)
         handler.postDelayed(tick, 30_000)

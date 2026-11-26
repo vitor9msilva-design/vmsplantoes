@@ -1,5 +1,5 @@
 {
-  "versionCode": 11,
-  "versionName": "2.0",
-  "novidades": "• Locais de trabalho: em Ajustes, cadastre hospitais, clínicas e contratos (como o HRT), mesmo antes de ter plantão lá.\n• Cada local define como paga: por produtividade (fichas e UTI), valor fixo por plantão, valor por hora ou salário mensal.\n• Plantões de valor fixo ou por hora já nascem com o valor e não pedem fichas.\n• Renomear um local troca o nome em todos os plantões.\n• No cadastro de plantão, o campo Local sugere seus locais e mostra como cada um paga."
+  "versionCode": 12,
+  "versionName": "2.1",
+  "novidades": "• Widget da tela inicial corrigido: agora mostra o próximo plantão, quanto falta e a hora de sair.\n• O widget aparece com prévia na lista de widgets e pode ser redimensionado.\n• Ele se atualiza ao abrir o app e quando um alarme toca."
 }
