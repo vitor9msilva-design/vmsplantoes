@@ -10,3 +10,7 @@ O usuário é médico, não programador: fale em português simples.
 - Atualização automática: `Atualizador.kt` lê `release/versao.json` e baixa `release/Plantoes.apk` (branch main).
 - Para publicar: siga "Publicar uma versão nova" no README. Sempre aumente `versionCode`, assine com a chave privada (`app/plantoes.jks` + `app/keystore.properties`, fora do git; peça ao usuário se não estiver no ambiente)
   e confira com `aapt2 dump badging release/Plantoes.apk`. Rode `./gradlew testReleaseUnitTest` antes.
+- Interface: `Telas.kt` monta cada aba (Início, Agenda, Calendário, Livres, Ajustes) a partir de `Dados`; `Ui.kt` tem as peças visuais;
+  `Tema.kt` tem os temas claros. Sempre tema claro.
+- Para ver as telas sem celular: `./gradlew recordPaparazziDebug` gera PNGs em `app/src/test/snapshots/images/` (fora do git),
+  a partir de `TelasShot.kt` (dados de exemplo com hospitais fictícios). Olhe as imagens antes de publicar mudanças visuais.

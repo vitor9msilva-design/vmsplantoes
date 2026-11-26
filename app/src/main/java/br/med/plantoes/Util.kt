@@ -84,8 +84,8 @@ object Cores {
  */
 object Paleta {
     val CORES = intArrayOf(
-        0xFF1E63D6.toInt(), 0xFF8E3FD1.toInt(), 0xFFE07A12.toInt(), 0xFF00838F.toInt(),
-        0xFFC2185B.toInt(), 0xFF6D4C41.toInt(), 0xFF3949AB.toInt(), 0xFF827717.toInt(),
+        0xFF2563EB.toInt(), 0xFF7C3AED.toInt(), 0xFFEA580C.toInt(), 0xFF0891B2.toInt(),
+        0xFFDB2777.toInt(), 0xFF65A30D.toInt(), 0xFF4F46E5.toInt(), 0xFFB45309.toInt(),
     )
     val mapa = linkedMapOf<String, Int>()
 
@@ -130,14 +130,24 @@ fun abrev(local: String): String {
     else antes.joinToString("") { it.first().uppercaseChar().toString() } + " " + ultima.take(7)
 }
 
-class Pal(ctx: Context) {
-    val n = ctx.noturno()
-    val bg = if (n) 0xFF0B1110.toInt() else 0xFFF3F5F4.toInt()
-    val panel = if (n) 0xFF121B19.toInt() else 0xFFFFFFFF.toInt()
-    val ink = if (n) 0xFFE8EFEC.toInt() else 0xFF0F1A17.toInt()
-    val mute = if (n) 0xFF93A5A0.toInt() else 0xFF5B6B66.toInt()
-    val line = if (n) 0xFF24302D.toInt() else 0xFFDDE3E1.toInt()
-    val verdeTxt = if (n) 0xFF2FD39A.toInt() else 0xFF0A7A5A.toInt()
-    val livre = if (n) 0x332FD39A else 0x2A0A7A5A
-    val descanso = if (n) 0x33FFFFFF else 0x1F000000
+/** Cores da interface (sempre clara). O tom de destaque vem do tema escolhido em Ajustes. */
+class Pal(val tema: Tema) {
+    constructor(ctx: Context) : this(Temas.atual(ctx))
+    val bg = 0xFFF4F6F9.toInt()
+    val surface = 0xFFFFFFFF.toInt()
+    val surface2 = 0xFFEEF1F5.toInt()
+    val ink = 0xFF0B1220.toInt()
+    val ink2 = 0xFF334155.toInt()
+    val mute = 0xFF64748B.toInt()
+    val line = 0xFFE2E7EE.toInt()
+    val acc = tema.primaria
+    val accClaro = tema.clara
+    val accEscuro = tema.escura
+    val livre = 0xFF10B981.toInt()
+    val livreFundo = 0xFFE9F8F1.toInt()
+    val livreTexto = 0xFF047857.toInt()
+    val choque = 0xFFDC2626.toInt()
+    val choqueFundo = 0xFFFEF2F2.toInt()
+    val choqueBorda = 0xFFFCA5A5.toInt()
+    val descanso = 0x12000000
 }

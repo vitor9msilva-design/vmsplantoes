@@ -1,12 +1,64 @@
 <resources>
-    <style name="Theme.Plantoes" parent="Theme.Material3.DayNight">
-        <item name="colorPrimary">@color/verde</item>
-        <item name="colorOnPrimary">@android:color/white</item>
-        <item name="colorPrimaryContainer">@color/verde_claro</item>
-        <item name="colorOnPrimaryContainer">@color/verde_escuro</item>
-        <item name="colorSecondaryContainer">@color/verde_claro</item>
-        <item name="colorOnSecondaryContainer">@color/verde_escuro</item>
+    <!-- Base clara comum a todos os temas -->
+    <style name="Theme.Plantoes.Base" parent="Theme.Material3.Light.NoActionBar">
+        <item name="android:windowBackground">@color/fundo</item>
+        <item name="colorSurface">@android:color/white</item>
+        <item name="colorOnSurface">@color/tinta</item>
+        <item name="colorOnSurfaceVariant">@color/tinta_suave</item>
+        <item name="colorSurfaceContainer">@android:color/white</item>
+        <item name="colorSurfaceContainerLow">@android:color/white</item>
+        <item name="colorSurfaceContainerHigh">@android:color/white</item>
+        <item name="colorSurfaceContainerHighest">@color/fundo2</item>
+        <item name="colorOutline">@color/linha_forte</item>
+        <item name="colorOutlineVariant">@color/linha</item>
+        <item name="colorError">#DC2626</item>
+        <item name="android:statusBarColor">@color/fundo</item>
+        <item name="android:navigationBarColor">@android:color/white</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="shapeAppearanceCornerSmall">@style/Forma.Pequena</item>
+        <item name="shapeAppearanceCornerMedium">@style/Forma.Media</item>
     </style>
+
+    <style name="Theme.Plantoes.Azul" parent="Theme.Plantoes.Base">
+        <item name="colorPrimary">#1D4ED8</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorPrimaryContainer">#DBE7FF</item>
+        <item name="colorOnPrimaryContainer">#0B2A7A</item>
+        <item name="colorSecondaryContainer">#DBE7FF</item>
+        <item name="colorOnSecondaryContainer">#0B2A7A</item>
+    </style>
+
+    <style name="Theme.Plantoes.Verde" parent="Theme.Plantoes.Base">
+        <item name="colorPrimary">#047857</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorPrimaryContainer">#D3F5E6</item>
+        <item name="colorOnPrimaryContainer">#064E3B</item>
+        <item name="colorSecondaryContainer">#D3F5E6</item>
+        <item name="colorOnSecondaryContainer">#064E3B</item>
+    </style>
+
+    <style name="Theme.Plantoes.Grafite" parent="Theme.Plantoes.Base">
+        <item name="colorPrimary">#1F2937</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorPrimaryContainer">#E6E9EE</item>
+        <item name="colorOnPrimaryContainer">#111827</item>
+        <item name="colorSecondaryContainer">#E6E9EE</item>
+        <item name="colorOnSecondaryContainer">#111827</item>
+    </style>
+
+    <!-- Nome antigo, usado no manifesto e nos testes -->
+    <style name="Theme.Plantoes" parent="Theme.Plantoes.Azul" />
+
+    <style name="Forma.Pequena" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">10dp</item>
+    </style>
+    <style name="Forma.Media" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">16dp</item>
+    </style>
+
     <style name="Theme.Plantoes.Alarme" parent="Theme.Material3.Dark.NoActionBar">
         <item name="android:windowFullscreen">true</item>
         <item name="colorPrimary">@android:color/white</item>

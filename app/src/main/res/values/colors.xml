@@ -1,6 +1,9 @@
 <resources>
-    <color name="verde">#0A7A5A</color>
-    <color name="verde_claro">#C9EFDF</color>
-    <color name="verde_escuro">#04342A</color>
-    <color name="icone_fundo">#0A7A5A</color>
+    <color name="fundo">#F4F6F9</color>
+    <color name="fundo2">#EEF1F5</color>
+    <color name="tinta">#0B1220</color>
+    <color name="tinta_suave">#64748B</color>
+    <color name="linha">#E2E7EE</color>
+    <color name="linha_forte">#CBD3DE</color>
+    <color name="icone_fundo">#1D4ED8</color>
 </resources>

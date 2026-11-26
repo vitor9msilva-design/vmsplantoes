@@ -1,5 +1,5 @@
 {
-  "versionCode": 4,
-  "versionName": "1.3",
-  "novidades": "• A lixeira agora apaga só aquele plantão. Não existe mais o botão que apagava os próximos iguais junto.\n• Novo: menu ⋮ › Excluir vários plantões. Você marca exatamente quais quer apagar.\n• Depois de excluir, toque em Desfazer se apagou o errado."
+  "versionCode": 5,
+  "versionName": "1.4",
+  "novidades": "• Visual novo, claro e mais limpo.\n• Nova tela Início: próximo plantão com barra de progresso, próximos 7 dias e resumo do mês.\n• Nova aba Ajustes no lugar do menu ⋮, com 3 temas: Azul, Verde e Grafite.\n• Cadastro de plantão desliza de baixo, com calendário e relógio para escolher data e hora.\n• Calendário com cores mais suaves e plantões que batem lado a lado."
 }
